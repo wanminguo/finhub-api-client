@@ -8,7 +8,45 @@
 
 ---
 
-## 0. 先决条件
+## 0. ★ 实际是怎么推的（2026-09-28 更新：这条才是能用的流程）
+
+**现实情况**：本机（Windows 工作区）没有 git；**服务器上有 git**，并且已经配好一把
+**GitHub Deploy Key**，推送是在**服务器上**完成的：
+
+| 东西 | 位置 / 值 |
+|---|---|
+| 部署私钥 | `/root/.ssh/finhub_deploy_ed25519`（指纹 `SHA256:McdIPpZWiYuDsqK/2PnwejR4JngUI0zkdenljman3OY`） |
+| ssh 别名 | `/root/.ssh/config` 里的 `Host github-finhub`（`IdentityFile` 指向上面那把、`IdentitiesOnly yes`） |
+| 仓库地址 | `git@github-finhub:wanminguo/finhub-api-client.git` |
+| 暂存目录 | 服务器 `/tmp/finhub-push`（把要发布的文件整份放这里） |
+| 推送脚本 | 工作区 `.deploy/_push_final.sh`（clone → 覆盖 → commit → push → **逐文件 blob 校验**） |
+
+流程（在工作区一侧）：
+
+```bash
+# 1) 把 publish/finhub-api-client/ 打包上传到服务器的暂存目录
+tar -czf /tmp/repo.tgz -C publish finhub-api-client        # 本机执行（Windows 有 tar）
+scp /tmp/repo.tgz root@<server>:/tmp/                      # 或用 .deploy/_rc.ps1 -Put
+ssh root@<server> 'rm -rf /tmp/finhub-push && mkdir -p /tmp/finhub-push \
+  && tar -xzf /tmp/repo.tgz -C /tmp --strip-components=1 -C /tmp/finhub-push'
+
+# 2) 服务器上执行推送脚本（它会自己 clone、覆盖、commit、push、校验）
+ssh root@<server> 'bash /tmp/_push_final.sh'
+```
+
+推送前**必须**先过第 2 节的泄密自查 —— 脚本里的 `git status --short` 那一步
+就是把改动清单打给你看，**不要盲推**。
+
+> 认证自检：`ssh -o BatchMode=yes -T git@github-finhub`
+> 应返回 `Hi wanminguo/finhub-api-client! You've successfully authenticated…`。
+> 若失败，说明这把公钥没加到仓库的 **Deploy keys**（需要勾 **Allow write access**）。
+
+> 一次性 PAT 只用于**改仓库名 / 改 About**（那需要 `Administration: write`），
+> 用完即删；**日常推代码不需要 PAT**，deploy key 就够。
+
+---
+
+## 0b. 先决条件（如果你想改用自己的机器推）
 
 - 已安装 git（`git --version` 能打印版本）。
 - GitHub 上已建好一个**空仓库**（**不要**勾选 Add README / .gitignore / license，
@@ -171,6 +209,13 @@ git config --global user.email "<你的邮箱>"
 
 - [ ] `python -m py_compile pm_api_client.py examples/*.py` 全部通过
 - [ ] 四个示例 `python examples/<name>.py --help` 都能打印帮助并正常退出
+- [ ] **信号客户端**：`cd signal-client && python -m py_compile finhub/*.py`
+      与 `python -m finhub --help` 均正常；`python build_artifacts.py` 能出包
+      （产物在 `signal-client/dist/`，**已被 .gitignore 排除，不要提交**）
 - [ ] `git status` 里没有 `.env` / `*.csv` / `*.jsonl` / 真实 key / `__pycache__`
-- [ ] README 里出现的相对路径（`examples/*.py`、`LICENSE` 等）都真实存在
+      / `dist/`
+- [ ] README 里出现的相对路径（`examples/*.py`、`signal-client/`、`LICENSE` 等）都真实存在
 - [ ] `CHANGELOG.md` 已记录本次版本
+- [ ] 对外的服务地址与数字**与站点实际一致**（本次新增：`/v1/signals.php`、
+      `/v1/receipt.php`、`/v1/credits.php`、`9.9U/300 次`、`19.9U/800 次`、
+      回测报告链接 <https://api.wanminguo.top/download/backtest-report.txt>）

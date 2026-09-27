@@ -28,6 +28,7 @@
 - [错误码表](#错误码表)
 - [套餐与限额](#套餐与限额)
 - [客户端用法](#客户端用法)
+- [信号订阅（另一条产品线）](#信号订阅另一条产品线)
 - [因子与信号目录](#因子与信号目录)
 - [示例脚本](#示例脚本)
 - [常见问题](#常见问题)
@@ -228,6 +229,12 @@ Polymarket 的市场规则原文写的是：
 | `GET /v1/samples.php` | `slug`(必填), `limit`, `offset`, `tail`, `raw` | 原始 2 秒样本。需套餐 `max_samples_per_call > 0`（免费档为 0）。`tail=1` 取最后 N 条；`raw=1` 返回采集器原始 JSONL 字段 |
 | `GET /v1/stats.php` | — | 预聚合统计 + 完整健康度。**免费档可用**，用来快速判断数据质量与规则表现 |
 | `GET /v1/index.php` | — | 端点清单 / 市场清单 / 套餐表（客户端自举用，建议启动时读一次而不是硬编码路径）。★ **免鉴权**，但响应是**扁平结构**（无 `data`/`meta`） |
+| `GET /v1/signals.php` † | `since`, `market`, `wait`, `limit` | **信号订阅线**（**按成交次数计费**，不占每日请求配额）：长轮询取实时信号，带 `token_id`。详见 [信号订阅](#信号订阅另一条产品线) |
+| `POST /v1/receipt.php` † | `signal_id`, `filled_shares`, … | **信号订阅线**：下单回执上报 —— **唯一扣次的地方** |
+| `GET /v1/credits.php` † | `ledger` | **信号订阅线**：次数余额 / 流水 / 价目表 / 当前计次口径 |
+
+> † 这三个属于[信号订阅](#信号订阅另一条产品线)那条产品线：**鉴权方式相同**（同一个 `X-Api-Key`），
+> 但计费单位是**成交次数**而不是请求数，且不消耗 `daily_quota`。
 
 补充细节：
 
@@ -239,6 +246,8 @@ Polymarket 的市场规则原文写的是：
 - `/v1/index.php` 是**唯一免鉴权**的端点（不用带 `X-Api-Key`），
   也是**唯一不使用标准信封**的端点 —— 见 [响应信封](#响应信封) 末尾那一节。
 - 其它所有 `/v1/*` 端点都必须带 key，没有第二个免鉴权的公开端点。
+- 上表里标 † 的三个是[信号订阅](#信号订阅另一条产品线)端点：**按成交次数计费**，
+  **不消耗**本节的每日请求配额（两套计量单位互不影响）。
 
 ---
 
@@ -394,6 +403,10 @@ except PmError as e:
 要持续轮询请上 `basic` 以上。套餐详情见
 <https://api.wanminguo.top/polymarket/endpoints.php>。
 
+> **上表是「数据 API」的套餐（按月 + 按请求数）。**
+> [信号订阅](#信号订阅另一条产品线)那条线**不看这张表**：它按**成交次数**计费
+> （注册送 10 次 / 9.9U=300 次 / 19.9U=800 次），并且信号端点不消耗这里的 `daily_quota`。
+
 ---
 
 ## 客户端用法
@@ -532,14 +545,68 @@ while True:
 
 ---
 
+## 信号订阅（另一条产品线）
+
+> **本仓库的根目录（`pm_api_client.py` / `examples/`）是「数据 API」那条线；
+> 这一节讲的是同站的另一条产品线 —— 实时信号订阅。** 两者鉴权方式相同（同一个 key），
+> 但**计费口径完全不同**：数据 API 按月 + 按请求数，信号订阅**按成交次数**。
+> 客户端源码在本仓库的 [`signal-client/`](signal-client/)，成品安装包在
+> <https://api.wanminguo.top/download/>。
+
+### 它是什么
+
+订阅 **BTC-5m** 的实时进场信号：平台把信号**推送**到你自己电脑上的客户端，
+客户端在**本地下单**（私钥只在你机器上，平台不代持、不代下单），
+成交后把**回执**回传给平台，平台按回执扣「次数」。
+
+| 端点 | 参数 | 说明 |
+|---|---|---|
+| `GET /v1/signals.php` | `since`, `market`, `wait`(0~15, 默认 10), `limit`(≤50) | **长轮询**取新信号。每条带 `signal_id`（`slug:trade_seq`）、方向、信号价、`limit_price`/`limit_capped`/`over_cap`、**`condition_id` + Up/Down 的 `token_id`**（实盘下单必需）、`ask_sz`（那一刻最优档挂单量） |
+| `POST /v1/receipt.php` | `signal_id`, `filled_shares`(必填), `requested_shares`, `avg_price`, `status`, `order_id` | **唯一扣次的地方**。只接受平台确实投递过的 `signal_id`；没成交（`filled_shares=0`）不扣 |
+| `GET /v1/credits.php` | `ledger`(≤200) | 次数余额 + 流水 + 订阅市场 + 价目表 + 当前计次口径（`credit_rule`） |
+
+**计费与执行口径**（写死在这里，避免猜）：
+
+- **1 次 = 10 份成交**（部分成交按 `ceil(成交量/10)` 折算）；**没成交不扣**；
+  `status=paper`/`dry` 之类的**纸面回执不计次**（服务端按 0 成交处理）。
+- 同一个 `(signal_id, key_id)` 只会扣一次 —— 重发、并发、分笔成交都幂等。
+- 一把 key **只绑一个市场**（当前只开放 `BTC-5m`），绑定后不可改。
+- 客户端默认按「信号价 + 0.05、**硬上限 0.85**」下 **FAK 限价**单：挂不上就不成交，不追高。
+- 次数用光时 `/v1/signals.php` 返回 **402 `no_credits`**；信号端点**不消耗**每日请求配额
+  （那是数据 API 的计量单位），但仍有秒级限速。
+- 价目：注册送 10 次、**9.9U / 300 次**、**19.9U / 800 次**。
+  ★ 注意 `--multiplier 5` 一次下单是 50 份 = **5 次**，倍数越高次数烧得越快。
+
+### 先说风险（这是本节最重要的一段）
+
+平台**不承诺任何收益**。用真实历史（93 单 / 1.36 天）按客户端口径回测的结果是：
+
+- 胜率 78.5%（95% 置信区间 69.1%~85.6%），而**盈亏平衡胜率 = 平均成交价 74.8%**
+  → 置信区间**跨过**平衡点，这段历史**分不出正负**；
+- 滑点从 0 加到 0.05，每单少赚 0.500U；
+- **盘口深度会吃掉倍数**：×5 时近 40% 的信号那一档挂单量不够，每单收益从 1.855U
+  掉到 0.961U，却要多付 5 倍次数费。
+
+完整报告（含分档表格与读取方法）：<https://api.wanminguo.top/download/backtest-report.txt>；
+客户端的安装、参数、隧道与常见问题见 [`signal-client/README.md`](signal-client/README.md)。
+
+> 国内客户下单需要出网隧道（平台提供，按 SNI 白名单转发、**不解密**，私钥不会经过平台），
+> 细节同样写在客户端的 README 里。
+
+---
+
 ## 因子与信号目录
 
 本站采集器在采数时**评估**了一批信号（多源基差、盘口滞后、动量、深度、边界点等族），
-这些信号**不在 API 响应里**、也不是本站推荐的下单依据 —— 它们只是让你知道
-「这份数据被从哪些角度检查过」；完整清单、每族的判定口径与实测表现见
+这些**评估出来的因子**不在这条数据 API 的响应里、也不是本站推荐的下单依据 ——
+它们只是让你知道「这份数据被从哪些角度检查过」；完整清单、每族的判定口径与实测表现见
 <https://api.wanminguo.top/polymarket/factors.php>。
 
-> 本 API 卖的是**原始结算输入数据**，不是策略或建议；因子页上的数字
+> ⚠️ 别把两件事搞混：上面那些是**数据侧评估的因子**（不对外下单）；
+> 而 [信号订阅](#信号订阅另一条产品线) 是**另一条产品线**，有自己的端点与客户端，
+> 按成交次数计费。
+
+> 本数据 API 卖的是**原始结算输入数据**，不是策略或建议；因子页上的数字
 > 是研究者自己的信号口径，请结合 `?` 号口径自行复算。
 
 ---
@@ -619,6 +686,29 @@ This API provides the **settlement inputs** for Polymarket's 5-minute up/down
 markets: the **official Chainlink TWAP60**, multi-venue spot quotes, and CLOB
 order-book data, at **~1 sample per 2 seconds**, across **7 markets**
 (BTC / ETH / SOL / XRP / DOGE / HYPE / BNB).
+
+### Signal subscription (a second product line)
+
+Besides the data API, the same site sells a **real-time signal subscription**
+for **BTC-5m**: the platform pushes signals to a client running on *your* machine,
+the client places the order **locally** (private keys never leave your machine),
+and posts a fill **receipt** back — billing is **per filled order**, not per request.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/signals.php` | long-poll for new signals (`signal_id`, side, prices, `condition_id`, Up/Down `token_id`, book depth) |
+| `POST /v1/receipt.php` | report a fill — **the only place credits are charged** (no fill ⇒ no charge) |
+| `GET /v1/credits.php` | credit balance, ledger, subscription, price table, current `credit_rule` |
+
+Source of the client: [`signal-client/`](signal-client/) in this repo;
+ready-to-run packages: <https://api.wanminguo.top/download/>.
+
+**No profit is promised.** A backtest over real history (93 trades / 1.36 days,
+same rules the client uses) gives a 78.5% win rate against a **74.8% break-even**
+(average fill price) — the 95% confidence interval **straddles** break-even, i.e.
+this sample cannot tell profit from loss. Slippage and thin books matter:
+at ×5, ~40% of signals were depth-limited and per-trade P&L roughly halved.
+Full report: <https://api.wanminguo.top/download/backtest-report.txt>.
 
 ### Why the official Chainlink reading matters
 
@@ -742,6 +832,13 @@ Endpoints & plans: <https://api.wanminguo.top/polymarket/endpoints.php>
   `dataclasses` / `typing`），和站点采集器的风格保持一致。
 - **不含任何密钥**：key 只从环境变量 `PM_API_KEY` 或命令行参数读，
   代码里没有任何硬编码凭证、私有地址或内网信息。
+  （`signal-client/` 同理：API key 由 `--key` 传入，实盘私钥只在客户本机、
+  既不落盘也不上报。）
+- **目录两条线**：
+  - 根目录 —— **数据 API 客户端**（`pm_api_client.py` + `examples/`，本节以上全部内容）；
+  - [`signal-client/`](signal-client/) —— **信号订阅客户端**（实时信号 → 本地下单 → 回执计次），
+    成品安装包在 <https://api.wanminguo.top/download/>，源码在此可直接运行/打包。
+    两者**互不依赖**，可分别使用。
 - **可直接发布**：本目录就是一个完整的、可 `git init` 后推上 GitHub 的仓库
   （发布步骤与 push 前的泄密自查见 [`PUBLISHING.md`](PUBLISHING.md)，
   版本记录见 [`CHANGELOG.md`](CHANGELOG.md)）。

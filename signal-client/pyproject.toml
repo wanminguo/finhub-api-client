@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finhub-signal-client"
+version = "0.1.0"
+description = "FinHub 信号客户端：订阅 BTC 信号、本地下单、回执回传（纯标准库；实盘可选 py-clob-client）"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Proprietary" }
+dependencies = []                     # ★ 默认零依赖：纸面模式 + 面板 + 隧道全用标准库
+
+[project.optional-dependencies]
+live = ["py-clob-client>=0.17"]       # 只有实盘下单才需要
+
+[project.scripts]
+finhub = "finhub.finhub:main"
+
+[tool.setuptools]
+packages = ["finhub"]
