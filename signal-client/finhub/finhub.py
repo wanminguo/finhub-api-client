@@ -54,6 +54,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 VERSION = "0.1.0"
 DEFAULT_BASE = "https://api.wanminguo.top/polymarket"
 DEFAULT_TUNNEL = "tun.api.wanminguo.top:8443"
+# ★ 2026-09-28：隧道域名的 DNS 兜底。
+#   实测 tun.api.wanminguo.top **没有 DNS 记录**（只有 api.wanminguo.top 有），
+#   于是客户家里那台机器解析不出来、`--live` 直接连不上 —— 而服务器上的隧道
+#   其实跑得好好的。这里在**域名解析失败**时自动回退到下面这些 IP，
+#   等 DNS 记录补上之后又会自动用回域名（域名优先，IP 只是兜底）。
+TUNNEL_FALLBACK_IPS = ("43.161.239.203",)
 
 
 def _writable_dir(preferred):
@@ -423,7 +429,8 @@ class TunnelProxy:
        否则平台请求会被塞进这个只支持 CONNECT 的代理，全部 405。
     """
 
-    def __init__(self, upstream, port=8788, max_conn=64):
+    def __init__(self, upstream, port=8788, max_conn=64,
+                 fallback_ips=TUNNEL_FALLBACK_IPS):
         self.upstream = tuple(upstream)
         self.port = port
         self.srv = None
@@ -431,17 +438,45 @@ class TunnelProxy:
         self.max_conn = max_conn
         self.conn_n = 0
         self.conn_lock = threading.Lock()
+        self.fallback_ips = tuple(fallback_ips or ())
+        self.resolved = None          # 真正拿去连的上游 (ip, port)
 
     def note(self, msg):
         self.events.append((time.time(), msg))
         del self.events[:-200]
         log("[隧道] " + msg)
 
+    def resolve_upstream(self):
+        """把上游解析成 IP；**域名解析失败时回退到备用 IP**。
+
+        ★ 为什么需要：隧道域名可能还没配 DNS 记录（实测就是这样），
+          而服务器上的隧道其实在跑。没有兜底的话，客户跑 `--live`
+          会直接报 "Name or service not known"，看起来像客户端坏了。
+        """
+        host, port = self.upstream
+        try:
+            infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+            if infos:
+                ip = infos[0][4][0]
+                self.resolved = (ip, port)
+                self.note("上游 %s:%d 解析为 %s" % (host, port, ip))
+                return self.resolved
+        except OSError as e:
+            self.note("上游 %s:%d 域名解析失败（%s）" % (host, port, e))
+        for ip in self.fallback_ips:
+            self.resolved = (ip, port)
+            self.note("★ 回退到备用 IP %s:%d（域名没配 DNS；"
+                      "等 DNS 记录补上后会自动用回域名）" % (ip, port))
+            return self.resolved
+        self.resolved = (host, port)      # 没有备用就原样试，让错误自然暴露
+        return self.resolved
+
     def start(self):
+        self.resolve_upstream()
         srv = socketserver.ThreadingTCPServer(("127.0.0.1", self.port), _ProxyHandler)
         srv.daemon_threads = True
         srv.allow_reuse_address = True
-        srv.upstream = self.upstream
+        srv.upstream = self.resolved      # ★ 用解析后的地址，不再每次重新解析
         srv.note = self.note
         srv.max_conn = self.max_conn          # 并发上限（第二轮审查 P1）
         srv.conn_n = 0
