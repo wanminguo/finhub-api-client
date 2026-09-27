@@ -109,15 +109,27 @@ git push
 字段名/接口没变、只是文档与品牌变化的版本，**不必**打新 tag；
 等接口或客户端行为有变化时再发 `v1.0.1` / `v1.1.0`。
 
-### 仓库已更名：`pm-api-client` → `finhub-api-client`
+### 仓库已更名：`pm-api-client` → `finhub-api-client` ✅ 已完成（2026-09-27）
 
 品牌改为 **FinHub API**、且计划覆盖「所有关联的 API 接口」后，旧名 `pm-api-client` 偏窄，
-**已决定更名**（趁仓库还新、几乎没有外部引用时改，越晚越麻烦）。
+已于 2026-09-27 更名为 **`finhub-api-client`**（趁仓库还新、几乎没有外部引用时改）。
 
-**改名由仓库所有者操作**：GitHub → 仓库 **Settings → Repository name**。
-（用 PAT 改名需要 `Administration: write`，权限比推代码大得多，不值得为省两步去开。）
+- 新地址：<https://github.com/wanminguo/finhub-api-client>
+- 旧地址 GitHub 会**自动重定向**，老链接不会失效；但 clone 地址变了，
+  本地已有 checkout 的人要执行
+  `git remote set-url origin git@github.com:wanminguo/finhub-api-client.git`
+- 注：用 PAT 改名需要 `Administration: write`（权限比推代码大得多）。
+  本次是一次性 token，用完即删；**以后正常推代码只需要 `Contents: write`**。
 
-改完后要同步的地方（**本工作区里都已经改好了**，列出以防将来又忘）：
+**About 也已同步**（2026-09-27）：
+
+| 字段 | 值 |
+|---|---|
+| Description | `FinHub API —— Polymarket 5 分钟涨跌盘数据接口的 Python 客户端（纯标准库，零依赖）` |
+| Website | <https://api.wanminguo.top/polymarket/> |
+| Topics | `api-client` `polymarket` `prediction-market` `python` `finhub` |
+
+改完要同步的地方（**本工作区里都已经改好了**，列出以防将来又忘）：
 
 | 位置 | 应是什么 |
 |---|---|
