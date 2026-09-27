@@ -1,0 +1,8 @@
+# 仅用标准库，无需依赖。
+#
+# 本客户端只使用 Python 标准库：
+#   urllib.request / urllib.error / urllib.parse / json / os / time /
+#   argparse / dataclasses / typing / csv / email.utils
+#
+# 因此这里没有需要安装的包 —— 保持和站点采集器一致的「零第三方依赖」风格。
+# 直接运行即可，不需要 `pip install -r requirements.txt`。
