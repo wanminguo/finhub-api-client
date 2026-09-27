@@ -146,7 +146,7 @@ POSIX 上 `config.json` 会被设成 `0600`；**Windows 上 chmod 无效**，若
 
 **这一节请务必看完。** 下面数字来自对真实历史（采集器落盘的信号 + 结算结果）的
 离线回测，报告原文：<https://api.wanminguo.top/download/backtest-report.txt>；
-回测脚本一并放在本目录 `tools/client_bt.py`（它读的是平台侧数据目录，
+回测脚本放在**本仓库** `signal-client/tools/client_bt.py`（它读的是平台侧数据目录，
 客户机器上跑不了 —— 放出来是为了让**口径可审计**）。
 
 口径：只做 BTC-5m、按信号价成交（并测试 +0.01/+0.02/+0.05 滑点）、硬上限 0.85、
