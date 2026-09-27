@@ -88,26 +88,28 @@ Polymarket 在国内直连不了。客户端会在本机起一个**只监听 127
 （默认 `127.0.0.1:8788`），实盘下单的流量经由它转发到 FinHub 的出网隧道：
 
 ```
-你的电脑 ──TLS(端到端)──▶ FinHub 隧道(tun.api.wanminguo.top:8443) ──▶ Polymarket
+你的电脑 ──外层 TLS(SNI=api.wanminguo.top)──▶ FinHub 隧道 ──▶ Polymarket
+              └─ 通道里发 CONNECT clob.polymarket.com:443
+              └─ 之后是你与 Polymarket 的**内层 TLS**（端到端）
 ```
 
-* 隧道按 **SNI 白名单**只放行 Polymarket / Polygon RPC 相关域名，其它一律拒绝；
-* 隧道**不解密**你的流量，也拿不到你的私钥或 API 凭证（TLS 是你和 Polymarket 之间的）；
+* **为什么要套一层到平台域名的 TLS**（2026-09-28 实测）：如果直接把目标的
+  ClientHello 发出去，里面的 `SNI=clob.polymarket.com` 是**明文**的，国内链路上的
+  DPI 看见就注入 RST（对照实验：同一个端口，`SNI=example.com` 能握手、
+  `SNI=clob.polymarket.com` 0.0 秒被掐）。现在内层 ClientHello 藏在外层加密通道里，
+  DPI 只能看到平台自己的域名。
+* 隧道按**域名白名单**只放行 Polymarket / Polygon RPC 相关域名，其它一律拒绝，且**只允许 443**；
+* 客户端的**私钥与下单签名是与 Polymarket 之间内层 TLS 端到端加密的**，平台看不到内容
+  （外层 TLS 只用于隐藏 SNI；平台能看到的是"连了哪个域名、多少字节"，和普通中转一样）；
 * 客户端这一侧也有一道同样的白名单，两道都过了才转发。
 
 不需要隧道时（例如你在能直连的地区）加 `--no-tunnel` 即可。
 
-**域名解析兜底（2026-09-28 加）**：隧道域名万一还没配好 DNS 记录，
-客户端会在**解析失败时自动回退到备用 IP**，日志里会写明：
+**域名解析兜底**：隧道域名解析失败时客户端会自动回退到备用 IP（日志里会写明
+"★ 回退到备用 IP …"），外层 TLS 仍然用域名校验证书，所以**回退不影响安全性**。
 
-```
-[隧道] 上游 tun.api.wanminguo.top:8443 域名解析失败（…）
-[隧道] ★ 回退到备用 IP 43.161.239.203:8443（域名没配 DNS；等 DNS 记录补上后会自动用回域名）
-```
-
-看到这两行不用慌 —— 说明它已经换用 IP 接上了。反过来，如果日志里是
-**连接超时（timed out）**，那是服务端的 **8443 端口没对外开放**（云安全组/防火墙），
-请联系平台方放行 **TCP 8443**；那不是客户端的问题。
+看到日志里是**连接超时（timed out）**，那是服务端的 8443 端口没对外开放
+（云安全组/防火墙），请联系平台方放行 **TCP 8443**；那不是客户端的问题。
 
 ---
 
@@ -124,7 +126,7 @@ Polymarket 在国内直连不了。客户端会在本机起一个**只监听 127
 --port N              本地面板端口，默认 8787
 --no-dashboard        不起本地面板（服务器上跑时用）
 --skip-thin           最优档挂单量小于我方份数时**跳过**该信号（默认不跳过，只提示）
---tunnel HOST:PORT    出网隧道地址，默认 tun.api.wanminguo.top:8443
+--tunnel HOST:PORT    出网隧道地址，默认 api.wanminguo.top:8443（外层 TLS 的证书名）
 --no-tunnel           不起本地隧道代理（你在能直连 Polymarket 的地区时用）
 --proxy-port N        本地代理端口，默认 8788
 --private-key 0x…     实盘私钥（也可用环境变量 FINHUB_PRIVATE_KEY）

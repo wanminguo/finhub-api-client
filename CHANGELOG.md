@@ -8,11 +8,24 @@
 
 ### 修复
 
-- **隧道域名解析失败时自动回退到备用 IP**（signal-client）：实测
-  `tun.api.wanminguo.top` 没有 DNS 记录，客户端会直接报
-  `Name or service not known`、`--live` 完全连不上（而服务端隧道其实在跑）。
-  现在解析失败会自动回退到备用 IP 并在日志里写明；DNS 记录补上后自动用回域名。
-  客户文档同步补了"看到回退日志不用慌 / 看到 timed out 是服务端 8443 没放行"。
+- **★ 出网隧道改为「外层 TLS + CONNECT」—— 这是"国内能不能下单"的关键修复**
+  （客户端 + 服务端隧道）：旧设计把目标的 ClientHello 原样转发，里面的
+  `SNI=clob.polymarket.com` 是**明文**，国内链路上的 DPI 看见就注入 RST。
+  对照实验（同一服务器端口、同一隧道，只换 SNI）：
+  `example.com` 握手完成（0.9s），`clob.polymarket.com` **0.0s 被 RST**。
+  现在客户端先与平台域名建立一层 TLS（`api.wanminguo.top`，国内可直连、证书有效），
+  在这层加密通道里发 `CONNECT <目标>:443`，内层 TLS 藏在外层里。
+  实测（从国内）：`GET https://clob.polymarket.com/ok` → **HTTP 200**，
+  并取到真实 `condition_id`；白名单外的域名与 443 之外的端口仍被拒绝。
+  默认隧道地址随之改为 `api.wanminguo.top:8443`（`tun.api.wanminguo.top` 无 DNS
+  也无证书，做不了外层 TLS）。
+
+- **隧道域名解析失败时回退到备用 IP**：解析不到时自动回退并在日志里写明；
+  外层 TLS 仍按域名校验证书，**回退不影响安全性**。
+
+- 客户文档把"隧道不解密"改写得更准确：外层 TLS 在平台侧终结（只用于隐藏 SNI），
+  **下单签名与私钥是客户端与 Polymarket 之间内层 TLS 端到端加密的**，
+  平台能看到的是"连了哪个域名、多少字节"。
 
 ## [1.1.0] - 2026-09-28
 

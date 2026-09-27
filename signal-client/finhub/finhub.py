@@ -53,12 +53,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 VERSION = "0.1.0"
 DEFAULT_BASE = "https://api.wanminguo.top/polymarket"
-DEFAULT_TUNNEL = "tun.api.wanminguo.top:8443"
-# ★ 2026-09-28：隧道域名的 DNS 兜底。
-#   实测 tun.api.wanminguo.top **没有 DNS 记录**（只有 api.wanminguo.top 有），
-#   于是客户家里那台机器解析不出来、`--live` 直接连不上 —— 而服务器上的隧道
-#   其实跑得好好的。这里在**域名解析失败**时自动回退到下面这些 IP，
-#   等 DNS 记录补上之后又会自动用回域名（域名优先，IP 只是兜底）。
+# ★★ 2026-09-28 重要变更：隧道改用「外层 TLS + CONNECT」。
+#   原因（实测）：旧版把客户端的 ClientHello 原样转发，里面的 SNI
+#   `clob.polymarket.com` 是**明文**的，国内链路的 DPI 看见就注入 RST ——
+#   对照实验里 SNI=example.com 能握手、SNI=clob.polymarket.com 0.0 秒被掐。
+#   所以现在客户端先与**平台自己的域名**建立一层 TLS（这个域名国内可直连、
+#   SNI 无害），在这层加密通道里发 `CONNECT clob.polymarket.com:443`；
+#   内层（与 Polymarket 的）TLS 藏在外层里，DPI 看不到。
+#
+#   因此默认隧道地址改成**带有效证书的主域名**（tun.api.wanminguo.top 没有 DNS 记录、
+#   也没有证书，做不了外层 TLS；主域名两者都有）。
+DEFAULT_TUNNEL = "api.wanminguo.top:8443"
+DEFAULT_TUNNEL_SNI = "api.wanminguo.top"
+# 备用 IP：域名解析失败时回退（外层 TLS 仍然用上面的 SNI 名校验证书）
 TUNNEL_FALLBACK_IPS = ("43.161.239.203",)
 
 
@@ -337,6 +344,15 @@ class Api:
 # ---------------------------------------------------------------------------
 # 出网隧道：本地 CONNECT 代理（只监听 127.0.0.1，只放白名单）
 # ---------------------------------------------------------------------------
+def _is_ip(host: str) -> bool:
+    """是不是 IP 字面量（决定外层 TLS 用哪个名字做 SNI）。"""
+    try:
+        socket.inet_aton(host)
+        return True
+    except OSError:
+        return ":" in host                      # 粗略认 IPv6
+
+
 class _ProxyHandler(socketserver.StreamRequestHandler):
     timeout = 30
 
@@ -381,20 +397,63 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
                 srv.conn_n -= 1
 
     def _relay(self, hostport):
-        # 把 CONNECT 请求转给平台隧道端口（那里再按 SNI 转发到真正的目标）
+        # 把 CONNECT 转给平台隧道：**先建外层 TLS**（SNI=平台域名），
+        # 再在这层加密通道里发 CONNECT 给真正的目标 —— 这样目标的 SNI 不会被 DPI 看到。
         try:
-            up = socket.create_connection(self.server.upstream, timeout=15)
+            raw = socket.create_connection(self.server.upstream, timeout=15)
         except OSError as e:
             self.server.note("隧道连不上 %s: %s" % (self.server.upstream, e))
             self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
             return
+        # ---- 外层 TLS ----
+        try:
+            up = self.server.ssl_ctx.wrap_socket(raw,
+                                                server_hostname=self.server.tls_name)
+        except (ssl.SSLError, OSError) as e:
+            self.server.note("隧道外层 TLS 握手失败（%s，证书名=%s）: %s: %s"
+                             % (self.server.upstream, self.server.tls_name,
+                                type(e).__name__, e))
+            try:
+                raw.close()
+            except OSError:
+                pass
+            self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+            return
+        # ---- 在外层通道里发 CONNECT，并读它的应答 ----
+        try:
+            up.sendall(("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n"
+                        % (hostport, hostport)).encode("ascii", "ignore"))
+            head = b""
+            up.settimeout(20)
+            while b"\r\n\r\n" not in head:
+                if len(head) > 8192:
+                    raise OSError("隧道应答头过长")
+                chunk = up.recv(1)          # 逐字节：后面紧接着就是内层 TLS 字节，不能多读
+                if not chunk:
+                    raise OSError("隧道提前关闭了连接")
+                head += chunk
+        except OSError as e:
+            self.server.note("隧道 CONNECT 失败（%s）: %s" % (hostport, e))
+            try:
+                up.close()
+            except OSError:
+                pass
+            self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+            return
+        status = head.split(b"\r\n", 1)[0].decode("latin-1", "replace")
+        if " 200" not in status:
+            self.server.note("隧道拒绝 %s：%s" % (hostport, status))
+            try:
+                up.close()
+            except OSError:
+                pass
+            self.wfile.write(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+            return
+
         self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         self.wfile.flush()
-        self.server.note("转发 %s" % hostport)
-        # ★ 2026-09-28 修（审查 P2-11）：通道建好后两端都**取消短超时**。
-        #   否则 requests 连接池的 keep-alive、WebSocket 空闲十几秒就会被
-        #   当成错误掐断（socket.timeout 是 OSError 的子类），表现为下单随机
-        #   失败。900 秒只作"死连接回收"的兜底。
+        self.server.note("转发 %s（经外层 TLS 隧道 %s）" % (hostport, self.server.tls_name))
+        # ★ 通道建好后两端都**取消短超时**（否则 keep-alive/WebSocket 空闲会被掐断）
         try:
             self.connection.settimeout(900)
             up.settimeout(900)
@@ -430,7 +489,7 @@ class TunnelProxy:
     """
 
     def __init__(self, upstream, port=8788, max_conn=64,
-                 fallback_ips=TUNNEL_FALLBACK_IPS):
+                 fallback_ips=TUNNEL_FALLBACK_IPS, tls_name=None):
         self.upstream = tuple(upstream)
         self.port = port
         self.srv = None
@@ -440,6 +499,10 @@ class TunnelProxy:
         self.conn_lock = threading.Lock()
         self.fallback_ips = tuple(fallback_ips or ())
         self.resolved = None          # 真正拿去连的上游 (ip, port)
+        # ★ 外层 TLS 用哪个名字做 SNI + 校验证书：域名就用它自己；传 IP 时用平台域名。
+        host = str(self.upstream[0])
+        self.tls_name = tls_name or (DEFAULT_TUNNEL_SNI if _is_ip(host) else host)
+        self.ssl_ctx = ssl.create_default_context()   # 默认会校验证书，不能关
 
     def note(self, msg):
         self.events.append((time.time(), msg))
@@ -477,6 +540,8 @@ class TunnelProxy:
         srv.daemon_threads = True
         srv.allow_reuse_address = True
         srv.upstream = self.resolved      # ★ 用解析后的地址，不再每次重新解析
+        srv.tls_name = self.tls_name      # ★ 外层 TLS 的 SNI / 证书名
+        srv.ssl_ctx = self.ssl_ctx
         srv.note = self.note
         srv.max_conn = self.max_conn          # 并发上限（第二轮审查 P1）
         srv.conn_n = 0
