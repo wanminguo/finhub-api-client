@@ -15,19 +15,19 @@
   否则会与本地首次提交冲突）。
 - 已配置 SSH key 并加到 GitHub（`ssh -T git@github.com` 返回 `Hi <你的账号>!`）。
   用 HTTPS 也行，把下面的 remote 换成
-  `https://github.com/<你的账号>/pm-api-client.git` 即可。
+  `https://github.com/wanminguo/finhub-api-client.git` 即可。
 
 ---
 
 ## 1. 发布命令序列（照抄）
 
-在**仓库父目录**（即包含 `pm-api-client/` 的那一层）执行：
+在**仓库父目录**（即包含 `finhub-api-client/` 的那一层）执行：
 
 ```bash
-cd publish/pm-api-client
+cd publish/finhub-api-client
 git init && git add -A && git commit -m "feat: initial release"
 git branch -M main
-git remote add origin git@github.com:<你的账号>/pm-api-client.git
+git remote add origin git@github.com:wanminguo/finhub-api-client.git
 git push -u origin main
 ```
 
@@ -85,12 +85,49 @@ grep -rniE 'PRIVATE[_]KEY|LMTS[_]TOKEN|passw[o]rd|secr[e]t|pm_live_[A-Za-z0-9]{8
 
 - 在仓库 **About**（GitHub 仓库页右上角齿轮）里填：
   - **Website**：<https://api.wanminguo.top/polymarket/>
-  - **Description**：Polymarket 5-minute up/down market data API — Python client (zero dependencies)
-  - **Topics**：`polymarket` `prediction-market` `api-client` `python`
+  - **Description**：FinHub API — Polymarket 5-minute up/down market data API, Python client (zero dependencies)
+  - **Topics**：`polymarket` `prediction-market` `api-client` `python` `finhub`
 
   这样仓库页会带上站点链接与正确分类，也更容易被搜到。
 - 发布一个 **Release / Tag** `v1.0.0`，说明直接引用 `CHANGELOG.md` 的 1.0.0 一节。
 - 之后每次改动记得同步更新 `CHANGELOG.md`。
+
+---
+
+## 3b. 后续更新怎么推（本文档第 1 节只适用于**首次**发布）
+
+首次发布之后，推送更新的最小命令序列（在仓库目录里执行）：
+
+```bash
+cd publish/finhub-api-client
+git add -A
+git status --short                 # ★ 先看一眼改了哪些文件，别盲推
+git commit -m "docs: 品牌更名 PULSAR 脉冲星 → FinHub API"
+git push
+```
+
+字段名/接口没变、只是文档与品牌变化的版本，**不必**打新 tag；
+等接口或客户端行为有变化时再发 `v1.0.1` / `v1.1.0`。
+
+### 仓库已更名：`pm-api-client` → `finhub-api-client`
+
+品牌改为 **FinHub API**、且计划覆盖「所有关联的 API 接口」后，旧名 `pm-api-client` 偏窄，
+**已决定更名**（趁仓库还新、几乎没有外部引用时改，越晚越麻烦）。
+
+**改名由仓库所有者操作**：GitHub → 仓库 **Settings → Repository name**。
+（用 PAT 改名需要 `Administration: write`，权限比推代码大得多，不值得为省两步去开。）
+
+改完后要同步的地方（**本工作区里都已经改好了**，列出以防将来又忘）：
+
+| 位置 | 应是什么 |
+|---|---|
+| `CHANGELOG.md` 底部的链接引用 | `https://github.com/wanminguo/finhub-api-client/...`（顺手把 `<你的账号>` 写成了真实账号，链接才点得开） |
+| `PUBLISHING.md` 第 1 节的 remote | `git@github.com:wanminguo/finhub-api-client.git` |
+| `README.md` 里 clone 之后的路径示例 | `cp finhub-api-client/pm_api_client.py ...` / `$(pwd)/finhub-api-client` |
+| `pm_api_client.py` 的 **User-Agent** | `finhub-api-client-python/<版本>`（**站点上那份示例也要一致**，否则两边对不上） |
+| 本地已有 checkout 的人 | `git remote set-url origin git@github.com:wanminguo/finhub-api-client.git` |
+
+GitHub 会为旧仓库名保留**自动重定向**，所以旧链接不会失效；但 clone 地址会变。
 
 ---
 

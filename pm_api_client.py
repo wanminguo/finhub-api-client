@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-pm_api_client.py —— PULSAR 脉冲星 · Polymarket 5 分钟涨跌盘数据 API 的官方 Python 客户端
+pm_api_client.py —— FinHub API · Polymarket 5 分钟涨跌盘数据 API 的官方 Python 客户端
 ============================================================================================
 
 **零第三方依赖**（只用标准库：urllib / json / dataclasses / typing），
@@ -456,7 +456,7 @@ class PmApi:
         self.base = (base or os.environ.get("PM_API_BASE") or DEFAULT_BASE).rstrip("/")
         self.timeout = float(timeout)
         self.max_retries = max(0, int(max_retries))
-        self.user_agent = user_agent or "pm-api-client-python/%s" % __version__
+        self.user_agent = user_agent or "finhub-api-client-python/%s" % __version__
         #: 最近一次响应的 :class:`Meta`（方便只看数据不接返回值的写法）
         self.last_meta: Optional[Meta] = None
         self.last_headers: Dict[str, str] = {}

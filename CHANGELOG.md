@@ -4,13 +4,26 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 变更
+
+- **品牌更名：`PULSAR 脉冲星` → `FinHub API`**（站点顶栏改为 FinHub 在上、API 在下）。
+  仅改名，**接口、参数、错误码、套餐口径一律未变** —— 已按字节核对，
+  本次改动的文件只有 `README.md` / `pm_api_client.py` / `CHANGELOG.md` 三个。
+  客户端代码无需任何改动（品牌字符串不出现在任何 API 字段里）。
+
+- 仓库定位说明：本仓库只是 **FinHub 的数据 API 客户端**。FinHub 还有另一条业务线
+  「USDT 收款通道」（商户收款 API，平台只做接口与对账、资金直连商户钱包），
+  与数据客户端**不是同一个产品**，将来单独开仓库，不混进这里。
+
 ## [1.0.0] - 2026-09-27
 
 初始发布。
 
 ### 新增
 
-- `pm_api_client.py` —— PULSAR 脉冲星（Polymarket 5 分钟涨跌盘数据 API）的
+- `pm_api_client.py` —— FinHub API（Polymarket 5 分钟涨跌盘数据 API）的
   Python 客户端，**零第三方依赖**（仅标准库）：
   - 端点方法：`window()` / `settle()` / `history()` / `samples()` / `stats()` /
     `index()`，以及自动翻页的 `iter_history()`。
@@ -38,6 +51,6 @@
 - `.gitignore` —— Python 产物与本地凭证（`.env` / `*.csv` / `*.jsonl` 等）。
 
 <!-- 发布后可在此追加对比链接，例如：
-[Unreleased]: https://github.com/<你的账号>/pm-api-client/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/<你的账号>/pm-api-client/releases/tag/v1.0.0
+[Unreleased]: https://github.com/wanminguo/finhub-api-client/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/wanminguo/finhub-api-client/releases/tag/v1.0.0
 -->

@@ -1,4 +1,4 @@
-# PULSAR 脉冲星 · Polymarket 5 分钟涨跌盘数据 API · Python 客户端
+# FinHub API · Polymarket 5 分钟涨跌盘数据 API · Python 客户端
 
 > **本目录可直接 `git init` 后发布到 GitHub** —— 里面只有源码、示例与文档，
 > 不含任何密钥、凭证或私有地址，也不依赖本机环境。
@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Deps: none](https://img.shields.io/badge/dependencies-none-brightgreen)](#关于本仓库)
 
-**一句话**：这是 [PULSAR 脉冲星](https://api.wanminguo.top/polymarket/) 提供的
+**一句话**：这是 [FinHub API](https://api.wanminguo.top/polymarket/) 提供的
 **Polymarket 5 分钟涨跌盘（up/down）结算输入数据**的官方 Python 客户端 ——
 给你**官方 Chainlink TWAP60 + 多家现货报价 + CLOB 盘口**，**约 2 秒一条**，
 覆盖 **7 个市场**，零第三方依赖。
@@ -404,13 +404,13 @@ except PmError as e:
 
 ```bash
 # 把 pm_api_client.py 拷到你的项目里就能用
-cp pm-api-client/pm_api_client.py your_project/
+cp finhub-api-client/pm_api_client.py your_project/
 ```
 
 或者让它可被导入：
 
 ```bash
-export PYTHONPATH="$PYTHONPATH:$(pwd)/pm-api-client"
+export PYTHONPATH="$PYTHONPATH:$(pwd)/finhub-api-client"
 ```
 
 `requirements.txt` 是空的（只有注释）—— 这就是真实状态：**零依赖**。
@@ -612,7 +612,7 @@ price to beat 只有一个正确来源：官方 Chainlink 读数，
 
 ## English
 
-**PULSAR · Polymarket 5-minute up/down market data API — official Python client.**
+**FinHub API · Polymarket 5-minute up/down market data API — official Python client.**
 Zero third-party dependencies (standard library only).
 
 This API provides the **settlement inputs** for Polymarket's 5-minute up/down
@@ -732,7 +732,7 @@ Endpoints & plans: <https://api.wanminguo.top/polymarket/endpoints.php>
 
 ## License
 
-[MIT](LICENSE) © PULSAR 脉冲星
+[MIT](LICENSE) © FinHub API
 
 ---
 
