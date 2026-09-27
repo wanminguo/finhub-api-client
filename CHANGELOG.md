@@ -6,6 +6,10 @@
 
 ## [未发布]
 
+（暂无）
+
+## [1.1.0] - 2026-09-28
+
 ### 新增
 
 - **`signal-client/` —— 信号订阅客户端**（FinHub 的第二条产品线，与数据 API
@@ -75,7 +79,6 @@
 - `LICENSE` —— MIT。
 - `.gitignore` —— Python 产物与本地凭证（`.env` / `*.csv` / `*.jsonl` 等）。
 
-<!-- 发布后可在此追加对比链接，例如：
-[Unreleased]: https://github.com/wanminguo/finhub-api-client/compare/v1.0.0...HEAD
+[未发布]: https://github.com/wanminguo/finhub-api-client/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/wanminguo/finhub-api-client/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/wanminguo/finhub-api-client/releases/tag/v1.0.0
--->
