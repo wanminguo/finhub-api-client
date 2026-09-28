@@ -70,7 +70,7 @@ def ascii_chart(values, width=64, height=9, label="official_bp"):
 def main():
     ap = argparse.ArgumentParser(
         description="取当前 5 分钟涨跌盘窗口的实时快照（含 price to beat 与三个 bp）",
-        epilog="文档：https://api.wanminguo.top/polymarket/docs.php",
+        epilog="文档：https://api.wanminguo.top/quant/polymarket/docs.php",
     )
     add_common_args(ap, default_market="btc")
     ap.add_argument("--slug", default=None, help="指定窗口 slug（默认取最新）")

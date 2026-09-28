@@ -82,7 +82,7 @@ def local_all_rules(rule):
 def main():
     ap = argparse.ArgumentParser(
         description="取最近 N 个已结算窗口（官方 outcome + 四条规则读数）",
-        epilog="文档：https://api.wanminguo.top/polymarket/docs.php",
+        epilog="文档：https://api.wanminguo.top/quant/polymarket/docs.php",
     )
     add_common_args(ap)  # settle 的 market 默认是 all，所以这里不加 --market 的 choices
     ap.add_argument("--market", default="all",

@@ -74,7 +74,7 @@ def pick_columns(rows):
 def main():
     ap = argparse.ArgumentParser(
         description="拉某个窗口的原始 2 秒样本（需套餐支持）",
-        epilog="文档：https://api.wanminguo.top/polymarket/docs.php",
+        epilog="文档：https://api.wanminguo.top/quant/polymarket/docs.php",
     )
     add_common_args(ap)  # samples 按 slug 取数，所以没有 --market
     ap.add_argument("--slug", required=False, default=None,

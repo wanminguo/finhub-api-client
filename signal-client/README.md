@@ -121,7 +121,7 @@ Polymarket 在国内直连不了。客户端会在本机起一个**只监听 127
 
 ```
 `--key KEY             API Key（必填；--save-key 之后可省略）
---base URL            平台地址，默认 https://api.wanminguo.top/polymarket
+--base URL            平台地址，默认 https://api.wanminguo.top/quant/polymarket
 --market M            市场，默认 BTC-5m（当前只开放 BTC）
 --paper / --live / --dry / --status   运行模式
 --base-shares N       基础份数，默认 10

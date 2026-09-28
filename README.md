@@ -7,13 +7,13 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Deps: none](https://img.shields.io/badge/dependencies-none-brightgreen)](#关于本仓库)
 
-**一句话**：这是 [FinHub API](https://api.wanminguo.top/polymarket/) 提供的
+**一句话**：这是 [FinHub API](https://api.wanminguo.top/quant/polymarket/) 提供的
 **Polymarket 5 分钟涨跌盘（up/down）结算输入数据**的官方 Python 客户端 ——
 给你**官方 Chainlink TWAP60 + 多家现货报价 + CLOB 盘口**，**约 2 秒一条**，
 覆盖 **7 个市场**，零第三方依赖。
 
-接口文档：<https://api.wanminguo.top/polymarket/docs.php> ·
-端点清单：<https://api.wanminguo.top/polymarket/endpoints.php>
+接口文档：<https://api.wanminguo.top/quant/polymarket/docs.php> ·
+端点清单：<https://api.wanminguo.top/quant/polymarket/endpoints.php>
 
 ---
 
@@ -124,7 +124,7 @@ $env:PM_API_KEY = "pm_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 ```bash
 curl -H "X-Api-Key: $PM_API_KEY" \
-  'https://api.wanminguo.top/polymarket/v1/window.php?market=btc'
+  'https://api.wanminguo.top/quant/polymarket/v1/window.php?market=btc'
 ```
 
 ### 4. 用这个 Python 客户端
@@ -214,7 +214,7 @@ Polymarket 的市场规则原文写的是：
 
 ## 端点表
 
-**基线**：`https://api.wanminguo.top/polymarket/v1/`
+**基线**：`https://api.wanminguo.top/quant/polymarket/v1/`
 **鉴权**：每个请求都要带 `X-Api-Key: <你的 key>`（也支持 `Authorization: Bearer <key>`；
 `?api_key=` 能用但**不推荐** —— 会进 access log）
 
@@ -401,7 +401,7 @@ except PmError as e:
 ★ **但注意免费档的日配额只有 500 次/天**：按 2 秒轮询，**约 17 分钟就打光**
 （1 秒轮询还会撞 `qps = 1`）。免费档适合「看一眼当前窗口」；
 要持续轮询请上 `basic` 以上。套餐详情见
-<https://api.wanminguo.top/polymarket/endpoints.php>。
+<https://api.wanminguo.top/quant/polymarket/endpoints.php>。
 
 > **上表是「数据 API」的套餐（按月 + 按请求数）。**
 > [信号订阅](#信号订阅另一条产品线)那条线**不看这张表**：它按**成交次数**计费
@@ -602,7 +602,7 @@ while True:
 本站采集器在采数时**评估**了一批信号（多源基差、盘口滞后、动量、深度、边界点等族），
 这些**评估出来的因子**不在这条数据 API 的响应里、也不是本站推荐的下单依据 ——
 它们只是让你知道「这份数据被从哪些角度检查过」；完整清单、每族的判定口径与实测表现见
-<https://api.wanminguo.top/polymarket/factors.php>。
+<https://api.wanminguo.top/quant/polymarket/factors.php>。
 
 > ⚠️ 别把两件事搞混：上面那些是**数据侧评估的因子**（不对外下单）；
 > 而 [信号订阅](#信号订阅另一条产品线) 是**另一条产品线**，有自己的端点与客户端，
@@ -753,7 +753,7 @@ current window including the 2-second series**):
 
 ### Endpoints
 
-Base: `https://api.wanminguo.top/polymarket/v1/` · Auth header: `X-Api-Key`
+Base: `https://api.wanminguo.top/quant/polymarket/v1/` · Auth header: `X-Api-Key`
 
 > ⚠️ All paths end with **`.php`** (e.g. `/v1/window.php`). No URL rewriting is
 > configured — `/v1/window` returns 404.
@@ -820,8 +820,8 @@ info, _ = pub.index()
 print(info['market_codes'])            # ['btc', 'eth', 'sol', 'xrp', 'doge', 'hype', 'bnb']
 ```
 
-Docs: <https://api.wanminguo.top/polymarket/docs.php> ·
-Endpoints & plans: <https://api.wanminguo.top/polymarket/endpoints.php>
+Docs: <https://api.wanminguo.top/quant/polymarket/docs.php> ·
+Endpoints & plans: <https://api.wanminguo.top/quant/polymarket/endpoints.php>
 
 ---
 

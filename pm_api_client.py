@@ -7,8 +7,8 @@ pm_api_client.py —— FinHub API · Polymarket 5 分钟涨跌盘数据 API 的
 **零第三方依赖**（只用标准库：urllib / json / dataclasses / typing），
 和站点采集器的风格一致 —— 你把它拷进任何 Python 3.8+ 环境都能直接跑。
 
-服务地址：https://api.wanminguo.top/polymarket/v1/
-接口文档：https://api.wanminguo.top/polymarket/docs.php
+服务地址：https://api.wanminguo.top/quant/polymarket/v1/
+接口文档：https://api.wanminguo.top/quant/polymarket/docs.php
 注册免费 key：https://api.wanminguo.top/me/register.php
 
 这个 API 给的是 **Polymarket 5 分钟涨跌盘（up/down）的结算输入数据**：
@@ -72,12 +72,12 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 __version__ = "1.0.0"
 
 #: 服务基线。可用环境变量 ``PM_API_BASE`` 覆盖（自建/灰度节点用）。
-DEFAULT_BASE = "https://api.wanminguo.top/polymarket/v1"
+DEFAULT_BASE = "https://api.wanminguo.top/quant/polymarket/v1"
 
 #: 没带 key 时提示去哪注册。
 REGISTER_URL = "https://api.wanminguo.top/me/register.php"
-DOCS_URL = "https://api.wanminguo.top/polymarket/docs.php"
-ENDPOINTS_URL = "https://api.wanminguo.top/polymarket/endpoints.php"
+DOCS_URL = "https://api.wanminguo.top/quant/polymarket/docs.php"
+ENDPOINTS_URL = "https://api.wanminguo.top/quant/polymarket/endpoints.php"
 
 #: 7 个市场的短名（``?market=`` 用这些）。
 MARKETS: Tuple[str, ...] = ("btc", "eth", "sol", "xrp", "doge", "hype", "bnb")

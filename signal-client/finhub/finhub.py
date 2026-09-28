@@ -52,7 +52,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 VERSION = "0.1.0"
-DEFAULT_BASE = "https://api.wanminguo.top/polymarket"
+DEFAULT_BASE = "https://api.wanminguo.top/quant/polymarket"
 # ★★ 2026-09-28 重要变更：隧道改用「外层 TLS + CONNECT」。
 #   原因（实测）：旧版把客户端的 ClientHello 原样转发，里面的 SNI
 #   `clob.polymarket.com` 是**明文**的，国内链路的 DPI 看见就注入 RST ——

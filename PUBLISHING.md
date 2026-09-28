@@ -122,7 +122,7 @@ grep -rniE 'PRIVATE[_]KEY|LMTS[_]TOKEN|passw[o]rd|secr[e]t|pm_live_[A-Za-z0-9]{8
 ## 3. 首次发布后
 
 - 在仓库 **About**（GitHub 仓库页右上角齿轮）里填：
-  - **Website**：<https://api.wanminguo.top/polymarket/>
+  - **Website**：<https://api.wanminguo.top/quant/polymarket/>
   - **Description**：FinHub API — Polymarket 5-minute up/down market data API, Python client (zero dependencies)
   - **Topics**：`polymarket` `prediction-market` `api-client` `python` `finhub`
 
@@ -164,7 +164,7 @@ git push
 | 字段 | 值 |
 |---|---|
 | Description | `FinHub API —— Polymarket 5 分钟涨跌盘数据接口的 Python 客户端（纯标准库，零依赖）` |
-| Website | <https://api.wanminguo.top/polymarket/> |
+| Website | <https://api.wanminguo.top/quant/polymarket/> |
 | Topics | `api-client` `polymarket` `prediction-market` `python` `finhub` |
 
 改完要同步的地方（**本工作区里都已经改好了**，列出以防将来又忘）：

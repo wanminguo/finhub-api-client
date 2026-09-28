@@ -62,7 +62,7 @@ def fmt_span(start_ts):
 def main():
     ap = argparse.ArgumentParser(
         description="按时间范围拉历史窗口列表（支持分页）",
-        epilog="文档：https://api.wanminguo.top/polymarket/docs.php",
+        epilog="文档：https://api.wanminguo.top/quant/polymarket/docs.php",
     )
     add_common_args(ap)
     ap.add_argument("--market", default="all",
