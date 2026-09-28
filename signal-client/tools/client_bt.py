@@ -38,6 +38,19 @@ PRICE_CAP = 0.85
 EXEC_DELTA = 0.05
 CREDIT_USD = 9.9 / 300.0
 CREDIT_PER_SHARES = 10
+# ★ 必须与平台当前口径一致：polymarket/lib/signal.php 的 SIG_CHARGE_MODE
+#   'receipt' = 1 次 = 一个成功回执（不看份数，当前启用）
+#   'shares'  = 1 次 = 10 份成交（备选，未启用）
+CHARGE_MODE = "receipt"
+
+
+def credits_of(filled_shares: float) -> int:
+    """按当前口径把成交量折算成扣次（和平台 sig_charge_for() 保持一致）。"""
+    if filled_shares <= 0:
+        return 0
+    if CHARGE_MODE == "receipt":
+        return 1
+    return math.ceil(filled_shares / CREDIT_PER_SHARES)
 
 
 def wilson(k, n, z=1.96):
@@ -149,7 +162,7 @@ def simulate(sigs, outcomes, slip, cap=PRICE_CAP, mult=1, limit_depth=False):
         st["asks"].append(s["ask"])
         st["fill_px"].append(fill_px)
         st["shares"] += eff
-        st["credits"] += math.ceil(eff / CREDIT_PER_SHARES)
+        st["credits"] += credits_of(eff)
         if s["side"] == oc:
             st["win"] += 1
             st["pnl"] += (1.0 - fill_px) * eff
@@ -197,8 +210,9 @@ def main():
     P("信号频率    : %.1f 条/天" % (len(sigs) / days))
     P("执行口径    : 吃 ask(+滑点)，硬上限 %.2f；固定 %d 份 × 倍数；持有到结算"
       % (PRICE_CAP, BASE_SHARES))
-    P("计次与单价  : 1 次 = %d 份成交 → %.4f U/次（9.9U/300 次）"
-      % (CREDIT_PER_SHARES, CREDIT_USD))
+    P("计次与单价  : %s → %.4f U/次（9.9U/300 次）"
+      % ("1 次 = 一个成功回执（不看份数）" if CHARGE_MODE == "receipt"
+         else "1 次 = %d 份成交" % CREDIT_PER_SHARES, CREDIT_USD))
     P("")
     P("盈亏口径    : 赢（方向对）= (1-成交价) × 份数；输 = -成交价 × 份数；")
     P("              次数费 = 成交单数 × 每次数 × 单价；净额 = 盈亏 - 次数费。")
@@ -280,10 +294,10 @@ def main():
     P("次数消耗速度与套餐寿命（定价的直接依据，用上面实测的信号频率算）：")
     rate = len(sigs) / days                       # 条/天（每条信号 = 一次下单）
     P("  · 实测信号频率 %.1f 条/天（每条信号客户端下一次单）" % rate)
-    P("  · ★ 两种计次口径差别很大，这里都算出来（当前实现是 A，用户口径可能是 B）：")
+    P("  · ★ 两种计次口径差别很大，这里都算出来（**平台当前启用 B：按回执**）：")
     P("      A 按份数：1 次 = %d 份成交 → ×1 扣 1 次、×5 扣 5 次（ceil(份数/%d)）"
       % (CREDIT_PER_SHARES, CREDIT_PER_SHARES))
-    P("      B 按回执：1 次 = 一个成功下单回执 → 不管 ×1 还是 ×5 都只扣 1 次")
+    P("      B 按回执（当前）：1 次 = 一个成功下单回执 → 不管 ×1 还是 ×5 都只扣 1 次")
     P("  %-6s %-22s %-22s %-16s %-16s"
       % ("倍数", "A 次数/天", "B 次数/天", "A 300次可用", "B 300次可用"))
     for mult in (1, 3, 5):
@@ -292,12 +306,13 @@ def main():
         P("  %-6s %-22.0f %-22.0f %-16s %-16s"
           % ("×%d" % mult, cd_a, cd_b,
              "%.1f 天" % (300.0 / cd_a), "%.1f 天" % (300.0 / cd_b)))
-    P("  ★ 口径 A 下倍数越高次数烧得越快（×5 的 300 次不到 1 天）；")
-    P("    口径 B 下套餐寿命与倍数无关（300 次恒为 %.1f 天），倍数只影响盈亏与资金占用。"
+    P("  ★ **平台当前用口径 B（按回执）**：套餐寿命与倍数无关（300 次恒为 %.1f 天），"
       % (300.0 / rate))
-    P("    9.9U/300、19.9U/800 这个价目表，是按\"每次约 0.033~0.025U\"定的 ——")
-    P("    在口径 B 下平台日收约 %.2f U（无论倍数）；口径 A 下 ×5 可到 %.2f U/天。"
-      % (rate * CREDIT_USD, rate * 5 * CREDIT_USD))
+    P("    倍数只影响盈亏与资金占用；平台日收约 %.2f U（无论倍数）。"
+      % (rate * CREDIT_USD))
+    P("    口径 A（按份数）下倍数越高次数烧得越快（×5 的 300 次不到 1 天），")
+    P("    日收可到 %.2f U/天 —— 但客户要多付 5 倍，解释成本高，**当前未启用**。"
+      % (rate * 5 * CREDIT_USD))
     P("")
     P("怎么用这份报告：把 ①「置信区间 vs 平衡点」当作**能不能承诺盈利**的唯一依据；")
     P("② 滑点那两行当作**执行质量的敏感度**；③ 次数费占比当作**定价**的参照。")

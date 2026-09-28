@@ -101,7 +101,7 @@ Polymarket 的 CLOB，还要把**观测时刻对齐**到同一拍上。
 
 ### 1. 注册并领取免费 key
 
-打开 <https://api.wanminguo.top/polymarket/me/register.php>，
+打开 <https://api.wanminguo.top/me/register.php>，
 免费档（`free`，0 元）**当场就能取当前窗口的完整数据（含 2 秒序列）**，
 不需要付费就能验证这份数据是否对你有用。
 
@@ -644,7 +644,7 @@ python examples/samples.py --slug btc-updown-5m-1790389200 --tail 30 --csv out.c
 （`PmApi.public()` 就是给这一步用的）。除此之外**所有 `/v1/*` 都要 key**。
 数据本身仍然要注册（`free` 档 0 元），注册当场就能取当前窗口的完整数据
 （含 2 秒序列），这是唯一能证明数据对你有用的方式：
-<https://api.wanminguo.top/polymarket/me/register.php>
+<https://api.wanminguo.top/me/register.php>
 
 **Q：为什么 `api.index()` 拿不到 `meta.quota`？**
 因为 `/v1/index.php` 是全站唯一**扁平**的端点 —— 它没有 `data` 也没有 `meta`，
@@ -749,7 +749,7 @@ python examples/current_window.py       # no pip install needed
 
 Get a free key (the `free` plan costs nothing and already returns the **complete
 current window including the 2-second series**):
-<https://api.wanminguo.top/polymarket/me/register.php>
+<https://api.wanminguo.top/me/register.php>
 
 ### Endpoints
 

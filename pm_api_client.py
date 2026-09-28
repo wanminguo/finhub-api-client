@@ -9,7 +9,7 @@ pm_api_client.py —— FinHub API · Polymarket 5 分钟涨跌盘数据 API 的
 
 服务地址：https://api.wanminguo.top/polymarket/v1/
 接口文档：https://api.wanminguo.top/polymarket/docs.php
-注册免费 key：https://api.wanminguo.top/polymarket/me/register.php
+注册免费 key：https://api.wanminguo.top/me/register.php
 
 这个 API 给的是 **Polymarket 5 分钟涨跌盘（up/down）的结算输入数据**：
 官方 Chainlink TWAP60 + 多家现货 + CLOB 盘口，**约 2 秒一条**，覆盖 7 个市场
@@ -75,7 +75,7 @@ __version__ = "1.0.0"
 DEFAULT_BASE = "https://api.wanminguo.top/polymarket/v1"
 
 #: 没带 key 时提示去哪注册。
-REGISTER_URL = "https://api.wanminguo.top/polymarket/me/register.php"
+REGISTER_URL = "https://api.wanminguo.top/me/register.php"
 DOCS_URL = "https://api.wanminguo.top/polymarket/docs.php"
 ENDPOINTS_URL = "https://api.wanminguo.top/polymarket/endpoints.php"
 
