@@ -356,19 +356,45 @@ def _is_ip(host: str) -> bool:
 class _ProxyHandler(socketserver.StreamRequestHandler):
     timeout = 30
 
+    def _read_request_head(self):
+        """从**原始 socket** 逐字节读 CONNECT 头，返回 (首行, 头之后多出来的字节)。
+
+        ★★ 2026-09-28 实测踩到的真 bug：原来用 `self.rfile.readline()` 读 CONNECT，
+          而 `rfile` 是**带缓冲**的 —— 它会一次从 socket 多读一段，客户端若把
+          "CONNECT 头 + 后续数据" 放在同一个 TCP 段里（流水线发送），
+          后面的数据就被吞进 rfile 的缓冲区、**永远不会转发给上游**。
+          自测（`.deploy/_test_proxy_framing.py` 的 B 场景）复现：
+          假隧道一个字节都收不到，SDK 只看到 200 然后一直等。
+          现在逐字节读原始 socket，并把多出来的字节原样转给上游，一个都不丢。
+
+        逐字节读的开销可以忽略（CONNECT 头只有几十字节）。
+        """
+        buf = b""
+        try:
+            self.connection.settimeout(20)
+            while b"\r\n\r\n" not in buf and len(buf) <= 8192:
+                chunk = self.connection.recv(1)
+                if not chunk:
+                    break
+                buf += chunk
+        except OSError:
+            pass
+        head, _, rest = buf.partition(b"\r\n\r\n")
+        first = head.split(b"\r\n", 1)[0].decode("latin-1", "replace").strip()
+        return first, rest
+
     def handle(self):
-        line = self.rfile.readline(4096).decode("latin-1", "replace").strip()
+        line, extra = self._read_request_head()
         if not line:
             return
         parts = line.split()
         if len(parts) < 2 or parts[0].upper() != "CONNECT":
             self.wfile.write(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+            self.wfile.flush()
             return
         hostport = parts[1]
         host = hostport.split(":")[0].lower()
         # ★ 第二轮审查 P2：只放 443（真正的目标是 TLS 端口；服务端隧道也是硬编码 443）。
-        #   不校验端口的话，"CONNECT clob.polymarket.com:22" 会被转成对 443 的连接，
-        #   语义上含混，明确拒掉更干净。
         try:
             cport = int(hostport.rsplit(":", 1)[1]) if ":" in hostport else 443
         except ValueError:
@@ -376,11 +402,13 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
         if cport != 443:
             self.server.note("拒绝（只允许 443）: %s" % hostport)
             self.wfile.write(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+            self.wfile.flush()
             return
         allowed = any(host == d or host.endswith("." + d) for d in TUNNEL_ALLOW)
         if not allowed:
             self.server.note("拒绝（不在白名单）: %s" % hostport)
             self.wfile.write(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+            self.wfile.flush()
             return
         # ★ 第二轮审查 P1：并发上限（服务端隧道有 400 上限，客户端原来没有）
         srv = self.server
@@ -388,15 +416,16 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
             if srv.conn_n >= srv.max_conn:
                 self.server.note("拒绝（本地代理并发已达上限 %d）" % srv.max_conn)
                 self.wfile.write(b"HTTP/1.1 503 Too Busy\r\n\r\n")
+                self.wfile.flush()
                 return
             srv.conn_n += 1
         try:
-            self._relay(hostport)
+            self._relay(hostport, extra)
         finally:
             with srv.conn_lock:
                 srv.conn_n -= 1
 
-    def _relay(self, hostport):
+    def _relay(self, hostport, extra=b""):
         # 把 CONNECT 转给平台隧道：**先建外层 TLS**（SNI=平台域名），
         # 再在这层加密通道里发 CONNECT 给真正的目标 —— 这样目标的 SNI 不会被 DPI 看到。
         try:
@@ -453,6 +482,17 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
         self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         self.wfile.flush()
         self.server.note("转发 %s（经外层 TLS 隧道 %s）" % (hostport, self.server.tls_name))
+        # ★ 把"跟 CONNECT 一起发过来的"那批字节原样转给上游（流水线客户端不丢数据）
+        if extra:
+            try:
+                up.sendall(extra)
+            except OSError as e:
+                self.server.note("转发流水线数据失败：%s" % e)
+                try:
+                    up.close()
+                except OSError:
+                    pass
+                return
         # ★ 通道建好后两端都**取消短超时**（否则 keep-alive/WebSocket 空闲会被掐断）
         try:
             self.connection.settimeout(900)
@@ -554,7 +594,18 @@ class TunnelProxy:
 
     def stop(self):
         if self.srv:
-            self.srv.shutdown()
+            # ★ 2026-09-28 实测修：只 shutdown() 只停线程，**监听套接字不关**，
+            #   于是同进程内再起一个代理会报 WinError 10048（地址占用）。
+            #   生产上只起一次所以没暴露，但停止/重启路径必须是干净的。
+            try:
+                self.srv.shutdown()
+            except Exception:                                    # noqa: BLE001
+                pass
+            try:
+                self.srv.server_close()
+            except Exception:                                    # noqa: BLE001
+                pass
+            self.srv = None
 
 
 # ---------------------------------------------------------------------------
