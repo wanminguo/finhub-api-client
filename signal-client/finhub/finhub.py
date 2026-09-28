@@ -425,30 +425,22 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
             with srv.conn_lock:
                 srv.conn_n -= 1
 
-    def _relay(self, hostport, extra=b""):
-        # 把 CONNECT 转给平台隧道：**先建外层 TLS**（SNI=平台域名），
-        # 再在这层加密通道里发 CONNECT 给真正的目标 —— 这样目标的 SNI 不会被 DPI 看到。
+    def _open_tunnel(self, hostport):
+        """建立"外层 TLS + CONNECT"这一段，返回可用的上游 socket。
+
+        ★ 2026-09-28 自查加了重试（见 _relay）：实测发现外网链路上**偶发**会把这条
+          到 8443 的连接掐掉（隧道侧连日志都没留下 —— 说明连接没到服务器），
+          对下单来说就是"偶发失败"。所以把"建链"这一步做成可重试的独立步骤。
+        """
+        raw = socket.create_connection(self.server.upstream, timeout=15)
         try:
-            raw = socket.create_connection(self.server.upstream, timeout=15)
-        except OSError as e:
-            self.server.note("隧道连不上 %s: %s" % (self.server.upstream, e))
-            self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
-            return
-        # ---- 外层 TLS ----
-        try:
-            up = self.server.ssl_ctx.wrap_socket(raw,
-                                                server_hostname=self.server.tls_name)
-        except (ssl.SSLError, OSError) as e:
-            self.server.note("隧道外层 TLS 握手失败（%s，证书名=%s）: %s: %s"
-                             % (self.server.upstream, self.server.tls_name,
-                                type(e).__name__, e))
+            up = self.server.ssl_ctx.wrap_socket(raw, server_hostname=self.server.tls_name)
+        except (ssl.SSLError, OSError):
             try:
                 raw.close()
             except OSError:
                 pass
-            self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
-            return
-        # ---- 在外层通道里发 CONNECT，并读它的应答 ----
+            raise
         try:
             up.sendall(("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n"
                         % (hostport, hostport)).encode("ascii", "ignore"))
@@ -457,26 +449,49 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
             while b"\r\n\r\n" not in head:
                 if len(head) > 8192:
                     raise OSError("隧道应答头过长")
-                chunk = up.recv(1)          # 逐字节：后面紧接着就是内层 TLS 字节，不能多读
+                chunk = up.recv(1)      # 逐字节：后面紧接着就是内层 TLS 字节，不能多读
                 if not chunk:
                     raise OSError("隧道提前关闭了连接")
                 head += chunk
-        except OSError as e:
-            self.server.note("隧道 CONNECT 失败（%s）: %s" % (hostport, e))
+        except OSError:
             try:
                 up.close()
             except OSError:
                 pass
-            self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
-            return
+            raise
         status = head.split(b"\r\n", 1)[0].decode("latin-1", "replace")
         if " 200" not in status:
-            self.server.note("隧道拒绝 %s：%s" % (hostport, status))
             try:
                 up.close()
             except OSError:
                 pass
-            self.wfile.write(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+            raise PermissionError(status)     # 业务拒绝（白名单/端口）—— 不重试
+        return up
+
+    def _relay(self, hostport, extra=b""):
+        # 把 CONNECT 转给平台隧道：**先建外层 TLS**（SNI=平台域名），
+        # 再在这层加密通道里发 CONNECT 给真正的目标 —— 这样目标的 SNI 不会被 DPI 看到。
+        # ★ 建链失败会重试（最多 3 次）：实测外网链路上偶发会被掐一下，
+        #   而"偶发失败"在下单路径上就是真金白银的损失。
+        up = None
+        for attempt in (1, 2, 3):
+            try:
+                up = self._open_tunnel(hostport)
+                break
+            except PermissionError as e:
+                self.server.note("隧道拒绝 %s：%s" % (hostport, e))
+                self.wfile.write(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+                self.wfile.flush()
+                return
+            except OSError as e:
+                self.server.note("建隧道失败（第 %d/3 次，%s）: %s: %s"
+                                 % (attempt, self.server.upstream, type(e).__name__, e))
+                if attempt < 3:
+                    time.sleep(0.4 * attempt)
+        if up is None:
+            self.server.note("隧道三次都没建起来 —— 给 SDK 回 502")
+            self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+            self.wfile.flush()
             return
 
         self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
