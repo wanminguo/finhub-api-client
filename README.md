@@ -567,7 +567,7 @@ while True:
 
 **计费与执行口径**（写死在这里，避免猜）：
 
-- **1 次 = 10 份成交**（部分成交按 `ceil(成交量/10)` 折算）；**没成交不扣**；
+- **1 次 = 一个成功下单回执**（**不看份数**：×1 和 ×5 都只扣 1 次）；**没成交不扣**；
   `status=paper`/`dry` 之类的**纸面回执不计次**（服务端按 0 成交处理）。
 - 同一个 `(signal_id, key_id)` 只会扣一次 —— 重发、并发、分笔成交都幂等。
 - 一把 key **只绑一个市场**（当前只开放 `BTC-5m`），绑定后不可改。
@@ -575,7 +575,9 @@ while True:
 - 次数用光时 `/v1/signals.php` 返回 **402 `no_credits`**；信号端点**不消耗**每日请求配额
   （那是数据 API 的计量单位），但仍有秒级限速。
 - 价目：注册送 10 次、**9.9U / 300 次**、**19.9U / 800 次**。
-  ★ 注意 `--multiplier 5` 一次下单是 50 份 = **5 次**，倍数越高次数烧得越快。
+  ★ 按当前口径，**套餐寿命与倍数无关**（300 次 ≈ 4.4 天，实测约 68 条信号/天）；
+  平台另留了「按份数」口径（1 次 = 10 份成交、×5 一单扣 5 次）**但未启用** ——
+  以接口返回的 `charge_mode` / `credit_rule` 为准。
 
 ### 先说风险（这是本节最重要的一段）
 
@@ -699,6 +701,9 @@ and posts a fill **receipt** back — billing is **per filled order**, not per r
 | `GET /v1/signals.php` | long-poll for new signals (`signal_id`, side, prices, `condition_id`, Up/Down `token_id`, book depth) |
 | `POST /v1/receipt.php` | report a fill — **the only place credits are charged** (no fill ⇒ no charge) |
 | `GET /v1/credits.php` | credit balance, ledger, subscription, price table, current `credit_rule` |
+
+**1 credit = one successful fill receipt** (independent of order size: ×1 and ×5 both cost
+1 credit); no fill ⇒ no charge; paper/dry receipts are never charged.
 
 Source of the client: [`signal-client/`](signal-client/) in this repo;
 ready-to-run packages: <https://api.wanminguo.top/download/>.
