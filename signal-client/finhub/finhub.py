@@ -1026,6 +1026,56 @@ def _tunnel_keepalive(panel_port=8787):
 
 
 # ---------------------------------------------------------------------------
+# 开机自启动（★ 2026-10-05 用户口径：信号要长驻 + 开机自启动）
+#   用 HKCU\...\Run 注册表项，指向当前 exe + --autostart（不开浏览器）。
+#   只在 Windows 生效；卸载/关闭开关即删键。不依赖任务计划程序权限。
+# ---------------------------------------------------------------------------
+AUTOSTART_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+AUTOSTART_NAME = "FinHubClient"
+
+
+def _current_exe_path():
+    """当前程序路径：打包后是 exe，源码跑是 python.exe + 脚本。"""
+    if getattr(sys, "frozen", False):
+        return sys.executable
+    return '"%s" "%s"' % (sys.executable, os.path.abspath(__file__))
+
+
+def autostart_status():
+    """是否已注册开机自启动。非 Windows 一律 False。"""
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_RUN_KEY) as k:
+            winreg.QueryValueEx(k, AUTOSTART_NAME)
+        return True
+    except Exception:                                              # noqa: BLE001
+        return False
+
+
+def autostart_set(on):
+    """开启/关闭开机自启动。返回 (ok, msg)。"""
+    if sys.platform != "win32":
+        return False, "当前系统不支持开机自启动（仅 Windows）"
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_RUN_KEY,
+                            0, winreg.KEY_SET_VALUE) as k:
+            if on:
+                winreg.SetValueEx(k, AUTOSTART_NAME, 0, winreg.REG_SZ,
+                                  _current_exe_path() + " --autostart")
+            else:
+                try:
+                    winreg.DeleteValue(k, AUTOSTART_NAME)
+                except FileNotFoundError:
+                    pass
+        return True, ("已开启开机自启动" if on else "已关闭开机自启动")
+    except Exception as e:                                         # noqa: BLE001
+        return False, "设置开机自启动失败：%s" % e
+
+
+# ---------------------------------------------------------------------------
 # 出网隧道：本地 CONNECT 代理（只监听 127.0.0.1，只放白名单）
 # ---------------------------------------------------------------------------
 def _is_ip(host: str) -> bool:
@@ -2102,12 +2152,20 @@ def render_dyn(st):
             '<form method="post" action="api/auth_logout" style="margin:0" '
             'onsubmit="return confirm(\'确认退出平台登录？\');">'
             '<button type="submit" class="btn btn-stop">退出登录</button></form>'
+            '<span style="font-size:12px;color:#6b7891">开机自启动：'
+            '<button type="button" class="btn %s" style="padding:3px 10px;font-size:11.5px" '
+            'onclick="var b=this;fetch(\'api/autostart?on=%s\',{method:\'POST\'}).then(function(r){'
+            'return r.json();}).then(function(d){alert(d.message||\'完成\');location.reload();})'
+            '.catch(function(){alert(\'网络错误\');});">%s</button></span>'
             '</div></details>'
             % (html.escape(user.get("username") or "?"),
                html.escape(user.get("username") or "?"),
                html.escape(user.get("nickname") or "—"),
                html.escape(user.get("email") or "—"),
-               len(keys), bal_sum, used_sum, ktab))
+               len(keys), bal_sum, used_sum, ktab,
+               "ok" if autostart_status() else "mute",
+               "0" if autostart_status() else "1",
+               "已自启动（点击关闭）" if autostart_status() else "未自启动（点击开启）"))
     else:
         err_txt = ('<p style="color:#d64545;font-size:12.5px">%s</p>' % html.escape(au["error"])
                    if au.get("error") else "")
@@ -2464,6 +2522,21 @@ class Dash(BaseHTTPRequestHandler):
             self.send_response(302)
             self.send_header("Location", "/")
             self.end_headers()
+            return
+        # ★ 2026-10-05 开机自启动开关（写入 HKCU Run 注册表项，指向 exe --autostart）
+        if self.path.startswith("/api/autostart"):
+            qs = urllib.parse.urlparse(self.path).query
+            on = urllib.parse.parse_qs(qs).get("on", ["1"])[0] not in ("0", "off", "false")
+            ok, msg = autostart_set(bool(on))
+            log(msg)
+            if Dash.state:
+                Dash.state.push_log(msg)
+            body = json.dumps({"ok": ok, "message": msg}, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         if self.path.startswith("/api/reset_ladder"):
             # ★ 2026-10-02（审查）：卡片级重置按 cid 定位 —— 原实现按表单
@@ -3307,6 +3380,8 @@ def main(argv=None):
     ap.add_argument("--bind", default="127.0.0.1",
                     help="本地面板监听地址（默认 127.0.0.1 仅本机；填 0.0.0.0 可让同一局域网/公网设备访问）")
     ap.add_argument("--no-dashboard", action="store_true", help="不开本地面板")
+    ap.add_argument("--autostart", action="store_true",
+                    help="开机自启动模式：正常启动面板/引擎，但不自动打开浏览器（由『开机自启动』按钮写入）")
     ap.add_argument("--skip-thin", action="store_true",
                     help="最优档挂单量小于我方份数时跳过该信号（默认不跳过，只提示）")
     ap.add_argument("--tunnel", default=DEFAULT_TUNNEL, help="出网隧道 host:port")
@@ -3397,8 +3472,9 @@ def main(argv=None):
             log("本地面板： http://%s:%d（等待填写 KEY）" % (args.bind, args.port))
             log("没有 KEY 也保持端口开启 —— 面板『连接配置』里填写 KEY 保存后点『启动』")
             try:
-                threading.Timer(1.0, lambda: webbrowser.open(
-                    "http://127.0.0.1:%d" % args.port)).start()
+                if not args.autostart:
+                    threading.Timer(1.0, lambda: webbrowser.open(
+                        "http://127.0.0.1:%d" % args.port)).start()
             except Exception:                                    # noqa: BLE001
                 pass
             try:
@@ -3464,8 +3540,9 @@ def main(argv=None):
         log("本地面板： http://%s:%d（引擎未自动启动，请在各配置点『启动此配置』）" % (args.bind, args.port))
         # ★ 2026-10-03（无窗口打包）：自动打开本地面板，双击 exe 后直接看到界面
         try:
-            threading.Timer(1.0, lambda: webbrowser.open(
-                "http://127.0.0.1:%d" % args.port)).start()
+            if not args.autostart:
+                threading.Timer(1.0, lambda: webbrowser.open(
+                    "http://127.0.0.1:%d" % args.port)).start()
         except Exception:                                      # noqa: BLE001
             pass
         # ★ 2026-10-03（用户登录）：启动时自动检查一次平台登录态（本地 cookies.txt）
