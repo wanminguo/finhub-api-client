@@ -44,6 +44,7 @@ import os
 import socket
 import socketserver
 import ssl
+import subprocess
 import sys
 import tempfile
 import threading
@@ -763,6 +764,18 @@ class Api:
         """每日额度用量（需已登录 session）。返回 (json, code)。"""
         return self._req("/v1/usage.php")
 
+    # ------------------------------------------------------------------
+    # 公网远程查看隧道（★ 2026-10-05 新增）：每用户一条 + 平台余额付费订阅。
+    #   GET  /v1/tunnel.php         查订阅状态/价格/到期/端口/公网 URL/平台余额
+    #   POST /v1/tunnel.php  action=subscribe  扣平台余额订阅（返回 url + private_key）
+    #   需已登录（session cookie）。模拟盘不影响隧道（隧道只透传本地面板）。
+    # ------------------------------------------------------------------
+    def tunnel(self, action="status"):
+        if action == "subscribe":
+            return self._req("/v1/tunnel.php", method="POST",
+                             form={"action": "subscribe"})
+        return self._req("/v1/tunnel.php")
+
 
 # ---------------------------------------------------------------------------
 # 全局登录状态（面板顶部「用户登录」区块的数据源）
@@ -831,6 +844,185 @@ def auth_refresh(force=False, username=None, password=None):
             _AUTH["error"] = str(e)
             _AUTH["busy"] = False
         return False
+
+
+# ---------------------------------------------------------------------------
+# 公网远程查看隧道（★ 2026-10-05 新增）：每用户一条 SSH 反向隧道 + 订阅权限
+#   · 订阅 = 用户用平台 USDT 余额付费（POST v1/tunnel.php action=subscribe）
+#   · 私钥落本机 ~/.finhub/tunnels/tun_<uid>.pem（0600），用 ssh -R 建反向隧道
+#   · 公网访问 https://api.wanminguo.top/tunnel/<用户名>/ 直达本地面板
+#   · 模拟盘同样可开隧道查看面板；面板本身不暴露平台密钥（实盘才查 PM 余额）
+# ---------------------------------------------------------------------------
+_TUNNEL_DIR = os.path.join(CONFIG_DIR, "tunnels")
+_TUNNEL_LOCK = threading.Lock()
+_TUNNEL = {"info": None, "error": "", "busy": False, "auto": False,
+           "uid": None, "last_check": 0.0}
+_TUNNEL_PROC = {"proc": None, "pid": 0, "port": 0, "started": 0.0}
+
+
+def tunnel_refresh(force=False, max_age=60.0):
+    """查订阅状态（60 秒缓存；force 强制刷新）。登录态由本地 session cookie 带。"""
+    with _TUNNEL_LOCK:
+        if _TUNNEL["busy"] and not force:
+            return dict(_TUNNEL.get("info") or {})
+        if (not force and _TUNNEL.get("info")
+                and time.time() - _TUNNEL.get("last_check", 0) < max_age):
+            return dict(_TUNNEL.get("info") or {})
+        _TUNNEL["busy"] = True
+    try:
+        api = Api(None)
+        d, code = api.tunnel("status")
+        with _TUNNEL_LOCK:
+            if d.get("ok"):
+                info = d.get("data") if isinstance(d.get("data"), dict) else {}
+                if not info and isinstance(d, dict):
+                    info = d                      # 服务端也可能直接平铺
+                _TUNNEL["info"] = info
+                _TUNNEL["error"] = ""
+                # uid 不在隧道接口返回里，从登录用户信息取
+                with _AUTH_LOCK:
+                    _u = _AUTH.get("user") or {}
+                _TUNNEL["uid"] = (_u.get("id") or info.get("uid")
+                                  or info.get("user_id") or None)
+            else:
+                _TUNNEL["error"] = (d.get("message") or d.get("error") or "")
+            _TUNNEL["last_check"] = time.time()
+            _TUNNEL["busy"] = False
+    except Exception as e:                                          # noqa: BLE001
+        with _TUNNEL_LOCK:
+            _TUNNEL["error"] = str(e)
+            _TUNNEL["busy"] = False
+    with _TUNNEL_LOCK:
+        return dict(_TUNNEL.get("info") or {})
+
+
+def _tunnel_key_path(uid):
+    try:
+        os.makedirs(_TUNNEL_DIR, exist_ok=True)
+    except Exception:                                                # noqa: BLE001
+        pass
+    return os.path.join(_TUNNEL_DIR, "tun_%s.pem" % uid)
+
+
+def _tunnel_save_key(uid, privkey):
+    """私钥落本机（0600）。返回是否已就绪。"""
+    if not privkey or not uid:
+        return False
+    p = _tunnel_key_path(uid)
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(str(privkey).strip() + "\n")
+        try:
+            os.chmod(p, 0o600)
+        except Exception:                                            # noqa: BLE001
+            pass
+        return True
+    except Exception:                                                # noqa: BLE001
+        return False
+
+
+def _tunnel_is_alive():
+    """隧道子进程是否在运行（结束过则清理句柄）。"""
+    proc = _TUNNEL_PROC.get("proc")
+    if proc is None:
+        return False
+    if proc.poll() is not None:
+        _TUNNEL_PROC["proc"] = None
+        _TUNNEL_PROC["pid"] = 0
+        return False
+    return True
+
+
+def _tunnel_info_snapshot():
+    with _TUNNEL_LOCK:
+        return dict(_TUNNEL.get("info") or {})
+
+
+def tunnel_start(panel_port=8787, force=False):
+    """开启公网隧道：ssh -N -R <tunnel_port>:127.0.0.1:<panel_port> tun_<uid>@api.wanminguo.top
+    需要：已订阅（服务端 active）+ 本机已有私钥（首次订阅自动保存）。"""
+    info = _tunnel_info_snapshot()
+    if not info.get("subscribed") and not info.get("status") == "active":
+        return {"ok": False, "error": "not_subscribed", "message": "还没有订阅公网远程查看服务"}
+    if _tunnel_is_alive() and not force:
+        return {"ok": True, "running": True}
+    with _TUNNEL_LOCK:
+        uid = _TUNNEL.get("uid")
+    if not uid:
+        uid = info.get("uid") or info.get("user_id")
+    if not uid:
+        return {"ok": False, "error": "no_uid", "message": "订阅信息缺少用户编号"}
+    tport = int(info.get("port") or info.get("tunnel_port") or 0)
+    if not tport:
+        return {"ok": False, "error": "no_port", "message": "订阅信息缺少隧道端口"}
+    # 私钥：服务端返回了就用它落盘（首次订阅/取回私钥时），否则用本地已有
+    priv = str(info.get("private_key") or "")
+    kp = _tunnel_key_path(uid)
+    if priv and not os.path.exists(kp):
+        _tunnel_save_key(uid, priv)
+    if not os.path.exists(kp):
+        return {"ok": False, "error": "no_key_local",
+                "message": "本机还没有隧道私钥，请先执行「订阅」把私钥保存到本机"}
+    kh = os.path.join(_TUNNEL_DIR, "known_hosts")
+    cmd = ["ssh", "-N",
+           "-R", "%d:127.0.0.1:%d" % (tport, int(panel_port)),
+           "-o", "StrictHostKeyChecking=no",
+           "-o", "UserKnownHostsFile=%s" % kh,
+           "-o", "ExitOnForwardFailure=yes",
+           "-o", "ServerAliveInterval=30",
+           "-o", "ServerAliveCountMax=3",
+           "-i", kp,
+           "tun_%s@api.wanminguo.top" % uid]
+    try:
+        p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(1.5)
+        if p.poll() is not None:
+            return {"ok": False, "error": "tunnel_exit",
+                    "message": "隧道进程启动后立即退出（端口被占用或账号认证失败），请重试"}
+        _TUNNEL_PROC.update(proc=p, pid=p.pid, port=tport, started=time.time())
+        with _TUNNEL_LOCK:
+            _TUNNEL["auto"] = True
+        return {"ok": True, "running": True, "pid": p.pid}
+    except Exception as e:                                           # noqa: BLE001
+        return {"ok": False, "error": "start_fail", "message": str(e)}
+
+
+def tunnel_stop():
+    """关闭公网隧道（只停隧道进程，面板与引擎不动）。"""
+    proc = _TUNNEL_PROC.get("proc")
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except Exception:                                        # noqa: BLE001
+                proc.kill()
+        except Exception:                                            # noqa: BLE001
+            pass
+    _TUNNEL_PROC.update(proc=None, pid=0, port=0, started=0.0)
+    with _TUNNEL_LOCK:
+        _TUNNEL["auto"] = False
+    return {"ok": True, "running": False}
+
+
+def _tunnel_keepalive(panel_port=8787):
+    """长驻保活：隧道掉线且用户开过（auto=True）→ 自动重连；关闭后不再拉起。"""
+    while True:
+        time.sleep(45)
+        try:
+            with _TUNNEL_LOCK:
+                auto = bool(_TUNNEL.get("auto"))
+            if not auto or _tunnel_is_alive():
+                continue
+            info = _tunnel_info_snapshot()
+            if not (info.get("subscribed") or info.get("status") == "active"):
+                continue
+            r = tunnel_start(panel_port=panel_port)
+            if not r.get("ok"):
+                log("隧道重连失败：%s" % (r.get("message") or r.get("error") or ""))
+        except Exception:                                            # noqa: BLE001
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1468,6 +1660,8 @@ function quitApp(){{  /* ★ 2026-10-03 二次确认：退出的是整个客户�
 <div id="auth-box">{auth}</div>
 <div class="sec">额度用量（按天）</div>
 <div id="usage-box">{usage}</div>
+<div class="sec">远程查看（公网隧道）</div>
+<div id="tunnel-box">{tunnel}</div>
 {cards}
 <form method="post" action="api/new_config" style="margin:0 0 6px">
   <button type="submit" class="btn btn-new">＋ 新增配置</button>
@@ -1492,6 +1686,7 @@ function quitApp(){{  /* ★ 2026-10-03 二次确认：退出的是整个客户�
         if (el) el.innerHTML = d.pills[cid];
       }}
       el = document.getElementById('usage-box');  if (el && d.usage)  el.innerHTML = d.usage;
+      el = document.getElementById('tunnel-box'); if (el && d.tunnel) el.innerHTML = d.tunnel;
       el = document.getElementById('pool-box');   if (el && d.pool)   el.innerHTML = d.pool;
       el = document.getElementById('stats-box');  if (el && d.stats)  el.innerHTML = d.stats;
       el = document.getElementById('ledger-box'); if (el && d.ledger) el.innerHTML = d.ledger;
@@ -1991,9 +2186,85 @@ def render_dyn(st):
             '登录平台账号后显示每日额度用量（1 股 = 1 额度，实盘成交回执扣股）。'
             '</p></div>')
 
+    # ---- 远程查看（公网隧道）（★ 2026-10-05 新增：每用户一条 + 订阅权限）----
+    tunnel_html = ""
+    if user:
+        tun = tunnel_refresh()
+        with _TUNNEL_LOCK:
+            tun_err = _TUNNEL.get("error") or ""
+            tun_uid = _TUNNEL.get("uid")
+        sub = bool(tun.get("subscribed"))
+        bal = tun.get("balance_usdt")
+        price = tun.get("price_usdt")
+        tun_url = (tun.get("url") or "")
+        exp = (tun.get("expires_at") or "")[:19]
+        running = _tunnel_is_alive()
+        has_key = bool(tun_uid and os.path.exists(_tunnel_key_path(tun_uid)))
+        if not sub:
+            bal_txt = ("%.2f USDT" % float(bal)) if isinstance(bal, (int, float)) else "—"
+            price_txt = ("%.2f USDT / 30 天" % float(price)) if isinstance(price, (int, float)) else "—"
+            tunnel_html = (
+                '<details class="cfg"><summary>远程查看（公网隧道）'
+                '<span class="tag pill mute">未订阅</span></summary>'
+                '<div class="cfg-row">'
+                '<label>服务</label><span>公网远程查看本地面板 · 每用户独立地址</span>'
+                '<label>价格</label><span class="mono">%s</span>'
+                '<label>平台余额</label><span class="mono">%s</span>'
+                '</div>'
+                '<div class="cfg-actions">'
+                '<form method="post" action="api/tunnel_subscribe" style="margin:0" '
+                'onsubmit="return confirm(\'订阅将从平台余额扣款，确认订阅公网远程查看 30 天？\');">'
+                '<button type="submit" class="btn btn-go">订阅（扣平台余额）</button></form>'
+                '<span style="font-size:12px;color:#6b7891">订阅后用手机访问专属公网地址，'
+                '可查看本地面板并启动/关闭配置；余额不足请到平台充值。</span>'
+                '</div>'
+                '%s</details>'
+                % (price_txt, bal_txt,
+                   ('<p style="color:#d64545;font-size:12.5px">%s</p>' % html.escape(tun_err)
+                    if tun_err else "")))
+        else:
+            uname = ""
+            with _AUTH_LOCK:
+                _u = _AUTH.get("user") or {}
+                uname = _u.get("username") or ""
+            run_pill = ('<span class="pill ok">运行中</span>' if running
+                        else '<span class="pill mute">已停止</span>')
+            key_txt = ("本机已保存" if has_key else "未保存（订阅/取回时自动保存）")
+            url_txt = html.escape(tun_url) if tun_url else "—"
+            tunnel_html = (
+                '<details class="cfg"><summary>远程查看（公网隧道）'
+                '<span class="tag pill %s">%s</span></summary>'
+                '<div class="cfg-row">'
+                '<label>公网地址</label><span class="mono">%s</span>'
+                '<button type="button" class="btn" style="padding:3px 10px;font-size:11.5px" '
+                'onclick="var b=this;navigator.clipboard.writeText(\'%s\').then(function(){'
+                'b.textContent=\'已复制\';setTimeout(function(){b.textContent=\'复制\';},1200);'
+                '}).catch(function(){alert(\'复制失败，请手动复制地址\');});">复制</button>'
+                '<label>到期时间</label><span class="mono">%s</span>'
+                '<label>隧道状态</label>%s'
+                '<label>私钥</label><span>%s</span>'
+                '</div>'
+                '<div class="cfg-actions">'
+                '<form method="post" action="api/tunnel_start" style="margin:0">'
+                '<button type="submit" class="btn btn-go">开启隧道</button></form>'
+                '<form method="post" action="api/tunnel_stop" style="margin:0" '
+                'onsubmit="return confirm(\'确认关闭公网隧道？关闭后手机将无法访问本地面板。\');">'
+                '<button type="submit" class="btn btn-stop">关闭隧道</button></form>'
+                '<span style="font-size:12px;color:#6b7891">开启后手机访问 %s 可看面板并启动/关闭配置；'
+                '客户端开着时隧道自动保活重连。</span>'
+                '</div>'
+                '%s</details>'
+                % ("ok" if running else "mute", "运行中" if running else "已停止",
+                   url_txt, html.escape(tun_url, quote=True),
+                   html.escape(exp) if exp else "—", run_pill, key_txt,
+                   ("https://api.wanminguo.top/tunnel/%s/" % html.escape(uname)
+                    if uname else html.escape(tun_url or "")),
+                   ('<p style="color:#d64545;font-size:12.5px">%s</p>' % html.escape(tun_err)
+                    if tun_err else "")))
+
     return {"ok": True, "pills": pills, "pool": pool, "stats": stats,
             "ledger": lrows, "logs": logtxt, "auth": auth_html,
-            "usage": usage_html,
+            "usage": usage_html, "tunnel": tunnel_html,
             # ★ 2026-10-03 看门狗：引擎线程即使活着也可能卡死在网络调用上，
             #   面板据此判断"运行中但长时间无轮询"并提示重启。
             "hb": {"now": time.time(), "last_poll": st.last_poll,
@@ -2012,7 +2283,8 @@ def render(st):
     d = render_dyn(st)
     return PAGE.format(cards=_configs_html(), pool=d["pool"], stats=d["stats"],
                        ledger=d["ledger"], log=d["logs"], auth=d["auth"],
-                       usage=d["usage"], ubal=ubal, links=_panel_links_html())
+                       usage=d["usage"], tunnel=d["tunnel"],
+                       ubal=ubal, links=_panel_links_html())
 
 
 class Dash(BaseHTTPRequestHandler):
@@ -2142,6 +2414,50 @@ class Dash(BaseHTTPRequestHandler):
             # 手动刷新登录态 + 每日用量（引擎轮询也会低频自动刷新）
             ok = auth_refresh(force=True)
             msg = "已刷新登录态：" + ("在线" if ok and _AUTH.get("user") else "未登录")
+            log(msg)
+            if Dash.state:
+                Dash.state.push_log(msg)
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+        # ★ 2026-10-05 公网远程查看隧道：订阅 / 开启 / 关闭（均需已登录）
+        if self.path.startswith("/api/tunnel_subscribe"):
+            d, code = Api(None).tunnel("subscribe")
+            ok = bool(d.get("ok"))
+            info = d.get("data") if isinstance(d.get("data"), dict) else d
+            msg = ""
+            if ok:
+                tunnel_refresh(force=True)
+                with _TUNNEL_LOCK:
+                    uid = _TUNNEL.get("uid")
+                _tunnel_save_key(uid, info.get("private_key") or "")
+                r = tunnel_start(panel_port=self.server.server_address[1])
+                msg = "订阅成功" + ("，已开启公网隧道" if r.get("ok")
+                                  else "，隧道启动失败：%s" % (r.get("message") or r.get("error") or ""))
+            else:
+                msg = "订阅失败：%s" % (d.get("message") or d.get("error") or "")
+            log(msg)
+            if Dash.state:
+                Dash.state.push_log(msg)
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+        if self.path.startswith("/api/tunnel_start"):
+            r = tunnel_start(panel_port=self.server.server_address[1])
+            msg = ("公网隧道已开启" if r.get("ok")
+                   else "隧道开启失败：%s" % (r.get("message") or r.get("error") or ""))
+            log(msg)
+            if Dash.state:
+                Dash.state.push_log(msg)
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+        if self.path.startswith("/api/tunnel_stop"):
+            r = tunnel_stop()
+            msg = "公网隧道已关闭"
             log(msg)
             if Dash.state:
                 Dash.state.push_log(msg)
@@ -3159,6 +3475,23 @@ def main(argv=None):
                 log("平台登录态：已登录（%s）" % _AUTH["user"].get("username"))
             else:
                 log("平台登录态：未登录（面板顶部『用户登录』填写用户名/口令）")
+        except Exception:                                        # noqa: BLE001
+            pass
+        # ★ 2026-10-05（公网远程查看）：启动时自动恢复隧道 + 保活重连线程。
+        #   已订阅 + 本机已有私钥 → 自动拉起；之后掉线由保活线程自动重连。
+        try:
+            if _AUTH.get("user"):
+                tunnel_refresh(force=True)
+                with _TUNNEL_LOCK:
+                    _uinfo = dict(_TUNNEL.get("info") or {})
+                    _uid = _TUNNEL.get("uid")
+                if (_uinfo.get("subscribed")
+                        and _uid and os.path.exists(_tunnel_key_path(_uid))):
+                    r = tunnel_start(panel_port=args.port)
+                    log("公网隧道：" + ("已自动开启" if r.get("ok")
+                                      else "启动失败：%s" % (r.get("message") or r.get("error") or "")))
+                threading.Thread(target=_tunnel_keepalive,
+                                 args=(args.port,), daemon=True).start()
         except Exception:                                        # noqa: BLE001
             pass
         try:
