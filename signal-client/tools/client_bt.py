@@ -9,7 +9,7 @@
     · 只做 low_rebound 进场信号
     · 下单价 = 信号价 + 滑点，**硬上限 0.85**（超过上限的挂不上 → 不成交、不扣次）
     · 固定倍数：基础 10 份 × 倍数（×1~×5）
-    · **1 次 = 10 份成交**（ceil(成交量/10)），9.9U=300 次 → 0.033 U/次
+    · **1 次 = 1 份成交**（按成交股数计费），9.9U=300 次 → 0.033 U/次
     · 持有到结算（当前口径，不设止损/止盈）
 
 回答客户最关心的三件事：
@@ -37,10 +37,10 @@ MAX_MULT = 5
 PRICE_CAP = 0.85
 EXEC_DELTA = 0.05
 CREDIT_USD = 9.9 / 300.0
-CREDIT_PER_SHARES = 10
+CREDIT_PER_SHARES = 1
 # ★ 必须与平台当前口径一致：polymarket/lib/signal.php 的 SIG_CHARGE_MODE
 #   'receipt' = 1 次 = 一个成功回执（不看份数，当前启用）
-#   'shares'  = 1 次 = 10 份成交（备选，未启用）
+#   'shares'  = 1 次 = 1 份成交（当前启用）
 CHARGE_MODE = "receipt"
 
 
