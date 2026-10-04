@@ -1372,7 +1372,7 @@ LOGIN_PAGE = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
   function go(){
     if(!u.value.trim()||!p.value){err.style.display='block';err.textContent='请填写用户名和登录口令';return;}
     btn.disabled=true;btn.textContent='登录中…';
-    fetch('/api/auth_login',{method:'POST',
+    fetch('api/auth_login',{method:'POST',
       headers:{'Content-Type':'application/x-www-form-urlencoded'},
       body:'username='+encodeURIComponent(u.value.trim())+'&password='+encodeURIComponent(p.value)})
     .then(function(r){return r.json();})
@@ -1441,13 +1441,14 @@ PAGE = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
   <div>
     <h1>FinHub--Polymarket平台信号跟单客户端</h1>
     <div class="sub">本机面板 · 数据区每 3 秒自动刷新（表单编辑不受影响） · 数据不出你的机器
-     · 分组/档口为<b>本地计算</b>，服务器只发信号 · 一个 KEY 对应一个市场</div>
+     · 分组/档口为<b>本地计算</b>，服务器只发信号 · 一个 KEY 对应一个市场
+     <br><span style="color:#5a6a85;font-size:12px">{links}</span></div>
   </div>
   <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin:2px 0 0">
     <span style="background:#e9f7ef;border:1px solid #cdeed9;color:#0f9d58;border-radius:8px;
          font-size:12.5px;padding:6px 12px" title="账号用户池剩余额度（KEY 不单独设限，任一 KEY 下单都从账号总额度扣，1 股 = 1 额度）">
       账号剩余额度(股) <b style="font-size:14px">{ubal}</b></span>
-    <form method="post" action="/api/auth_logout" style="margin:0"
+    <form method="post" action="api/auth_logout" style="margin:0"
           onsubmit="return confirm('确认退出平台登录？退出后需重新登录才能操作客户端。');">
       <button type="submit" class="btn btn-new" style="font-size:12.5px">退出登录</button>
     </form>
@@ -1460,7 +1461,7 @@ function quitApp(){{  /* ★ 2026-10-03 二次确认：退出的是整个客户�
   if (!confirm('确认退出整个客户端程序？退出后将不再接收平台信号。')) return;
   if (!confirm('再次确认：退出的是【整个客户端进程】（不是只停引擎）。\n一但退出，整个系统将关闭，需要重新双击 exe 才能启动。确定退出？')) return;
   var f = document.createElement('form');
-  f.method = 'POST'; f.action = '/api/quit';
+  f.method = 'POST'; f.action = 'api/quit';
   document.body.appendChild(f); f.submit();
 }}
 </script>
@@ -1468,7 +1469,7 @@ function quitApp(){{  /* ★ 2026-10-03 二次确认：退出的是整个客户�
 <div class="sec">额度用量（按天）</div>
 <div id="usage-box">{usage}</div>
 {cards}
-<form method="post" action="/api/new_config" style="margin:0 0 6px">
+<form method="post" action="api/new_config" style="margin:0 0 6px">
   <button type="submit" class="btn btn-new">＋ 新增配置</button>
 </form>
 <div class="sec">连接池（按配置统计）</div>
@@ -1482,7 +1483,7 @@ function quitApp(){{  /* ★ 2026-10-03 二次确认：退出的是整个客户�
 <script>
 (function(){{
   function dyn(){{
-    fetch('/api/state', {{cache:'no-store'}}).then(function(r){{return r.json();}})
+    fetch('api/state', {{cache:'no-store'}}).then(function(r){{return r.json();}})
     .then(function(d){{
       if (!d || !d.ok) return;
       var el;
@@ -1619,20 +1620,20 @@ def _configs_html():
         # 启动/关闭切换按钮（一个位置）：未运行显示「启动此配置」，运行中显示「关闭程序」
         if is_running:
             start_btn_html = (
-                '<form method="post" action="/api/stop" style="margin:0" '
+                '<form method="post" action="api/stop" style="margin:0" '
                 'onsubmit="return confirm(\'确认关闭？关闭后不再接收信号/下单，面板保持开启。\');">'
                 '<input type="hidden" name="cid" value="%s">'
                 '<button type="submit" class="btn btn-stop">关闭程序（只停引擎）</button></form>'
                 % html.escape(cid))
         else:
             start_btn_html = (
-                '<form method="post" action="/api/start" style="margin:0">'
+                '<form method="post" action="api/start" style="margin:0">'
                 '<input type="hidden" name="cid" value="%s">'
                 '<button type="submit" class="btn btn-go">启动此配置</button></form>'
                 % html.escape(cid))
         cards.append(
             '<details class="cfg"%s><summary>%s %s</summary>'
-            '<form method="post" action="/api/save_config">'
+            '<form method="post" action="api/save_config">'
             '<input type="hidden" name="cid" value="%s">'
             '<div class="cfg-row">'
             '<label>配置名</label>%s'
@@ -1664,11 +1665,11 @@ def _configs_html():
             '</form>'
             '<div class="cfg-actions">'
             '%s'
-            '<form method="post" action="/api/reset_ladder" style="margin:0" '
+            '<form method="post" action="api/reset_ladder" style="margin:0" '
             'onsubmit="return confirm(\'确认重置本配置的分组/档口并清空其下单台账？\');">'
             '<input type="hidden" name="cid" value="%s">'
             '<button type="submit" class="btn">重置分组/档口</button></form>'
-            '<form method="post" action="/api/delete_config" style="margin:0" '
+            '<form method="post" action="api/delete_config" style="margin:0" '
             'onsubmit="return confirm(\'确认删除此配置？将一并清空该配置的下单台账（平台 KEY 与额度不受影响）。\');">'
             '<input type="hidden" name="cid" value="%s">'
             '<button type="submit" class="btn btn-stop">删除配置</button></form>'
@@ -1685,6 +1686,34 @@ def _configs_html():
                inp("token_secret", "（钱包 API Token Secret）", 22, cc),
                start_btn_html, html.escape(cid), cid))
     return "".join(cards)
+
+
+_PM_BAL_CACHE = {}   # cid -> (ts, text)　★ 2026-10-05 实盘真实平台余额（60s 缓存，防 CLOB 限流）
+
+
+def _pm_bal_txt(cid, cc, e):
+    """连接池『PM 余额』单元格：
+    实盘配置且引擎运行 → 查 Polymarket 钱包真实 USDC 余额（60s 缓存）；
+    模拟盘 / 未运行 → “—”（用户口径：模拟盘不显示平台余额）。"""
+    if (cc.get("mode") or "paper") != "live":
+        return "—"
+    if not (e and _engine_alive(cid)):
+        return "—"
+    now = time.time()
+    hit = _PM_BAL_CACHE.get(cid)
+    if hit and now - hit[0] < 60:
+        return hit[1]
+    trader = e.get("trader")
+    if trader is None:
+        return "—"
+    try:
+        r = trader.balance_usdc()
+        v = (r or {}).get("usdc") if isinstance(r, dict) else None
+        txt = ("<b>%.2f</b> U" % float(v)) if v is not None else "—"
+    except Exception:                                      # noqa: BLE001
+        txt = "—"
+    _PM_BAL_CACHE[cid] = (now, txt)
+    return txt
 
 
 def render_dyn(st):
@@ -1733,19 +1762,22 @@ def render_dyn(st):
         run_mk = market_from_key(cc.get("api_key")) or cc.get("market") or "—"
         if eng_state is not None:
             run_mk = (eng_state.market or cc.get("market") or "—")
+        pm_bal = _pm_bal_txt(cid, cc, e)
         pool_rows.append(
             "<tr><td class='mono'>%s</td><td>%s</td><td>%s</td>"
-            "<td>×%s</td><td>%s</td><td>%s</td><td>%s</td>"
+            "<td>%s</td><td>×%s</td><td>%s</td><td>%s</td><td>%s</td>"
             "<td><span class='pill %s'>%s</span></td></tr>"
             % (html.escape(cc.get("name") or cid), html.escape(run_mk),
                "实盘" if cc.get("mode") == "live" else "模拟盘",
+               pm_bal,
                cc.get("multiplier") or 1,
                a["orders"], a["filled"], pnl_txt, s_cls, stt))
     if not pool_rows:
-        pool_rows = ["<tr><td colspan='9' style='color:#6b7891'>还没有配置 —— "
+        pool_rows = ["<tr><td colspan='10' style='color:#6b7891'>还没有配置 —— "
                      "点『＋ 新增配置』创建</td></tr>"]
     pool = ("<table><tr><th>配置</th><th>运行市场</th><th>模式</th>"
-            "<th>份数倍数</th><th>下单次数</th><th>成交(股)</th><th>盈亏</th><th>状态</th></tr>"
+            "<th>PM 余额</th><th>份数倍数</th><th>下单次数</th><th>成交(股)</th>"
+            "<th>盈亏</th><th>状态</th></tr>"
             + "".join(pool_rows) + "</table>")
 
     # ---- 市场统计卡片（区分市场）----
@@ -1870,9 +1902,9 @@ def render_dyn(st):
             '</div>'
             '<div style="margin:6px 0">%s</div>'
             '<div class="cfg-actions">'
-            '<form method="post" action="/api/auth_refresh" style="margin:0">'
+            '<form method="post" action="api/auth_refresh" style="margin:0">'
             '<button type="submit" class="btn">刷新</button></form>'
-            '<form method="post" action="/api/auth_logout" style="margin:0" '
+            '<form method="post" action="api/auth_logout" style="margin:0" '
             'onsubmit="return confirm(\'确认退出平台登录？\');">'
             '<button type="submit" class="btn btn-stop">退出登录</button></form>'
             '</div></details>'
@@ -1887,7 +1919,7 @@ def render_dyn(st):
         auth_html = (
             '<details class="cfg" open><summary>用户登录'
             '<span class="tag pill mute">未登录</span></summary>'
-            '<form method="post" action="/api/auth_login">'
+            '<form method="post" action="api/auth_login">'
             '<div class="cfg-row">'
             '<label>用户名</label>'
             '<input name="username" placeholder="平台用户名" style="width:14em" required>'
@@ -1980,7 +2012,7 @@ def render(st):
     d = render_dyn(st)
     return PAGE.format(cards=_configs_html(), pool=d["pool"], stats=d["stats"],
                        ledger=d["ledger"], log=d["logs"], auth=d["auth"],
-                       usage=d["usage"], ubal=ubal)
+                       usage=d["usage"], ubal=ubal, links=_panel_links_html())
 
 
 class Dash(BaseHTTPRequestHandler):
@@ -1989,14 +2021,28 @@ class Dash(BaseHTTPRequestHandler):
     def _host_ok(self):
         """★ 2026-09-28（第二轮审查 P1）：校验 Host，挡住 DNS rebinding。
 
-        面板虽然只绑 127.0.0.1，但浏览器里的恶意网页可以把某个域名解析到
+        面板默认只绑 127.0.0.1，但浏览器里的恶意网页可以把某个域名解析到
         127.0.0.1 再打这个端口 —— 没有 Host 校验时对方就能读走 /api/state
         （里面有 token_id、order_id、CLOB 原始响应）。只认本机名字。
+
+        ★ 2026-10-05（用户口径：手机公网/局域网查看面板）：
+        · bind=0.0.0.0 时，允许本机局域网 IP 作 Host（同一 WiFi 手机直连）；
+        · 服务器 Nginx 反代 /local/ 时，Host 是 api.wanminguo.top —— 放行自己域名。
+          反代路径只在本机配置（见 finhub_tunnel.bat 说明），域名白名单不变相放开任意 Host。
         """
         host = str(self.headers.get("Host") or "").strip().lower()
         port = self.server.server_address[1] if self.server else 0
         allow = {"127.0.0.1:%d" % port, "localhost:%d" % port,
                  "127.0.0.1", "localhost", "[::1]:%d" % port, "[::1]"}
+        allow |= {"api.wanminguo.top", "api.wanminguo.top:80",
+                  "api.wanminguo.top:443", "www.api.wanminguo.top",
+                  "www.api.wanminguo.top:443"}
+        try:
+            _ip = _lan_ip()
+            if _ip:
+                allow |= {_ip, "%s:%d" % (_ip, port)}
+        except Exception:                                      # noqa: BLE001
+            pass
         return host in allow
 
     def do_GET(self):                                            # noqa: N802
@@ -2376,6 +2422,48 @@ class Dash(BaseHTTPRequestHandler):
 _ENGINE_LOCK = threading.Lock()
 _ENGINES = {}    # cid -> {"thr": Thread, "key": api_key, "state": State}
 
+# ★ 2026-10-05：面板可访问地址（本机 / 局域网 / 公网），main() 启动面板时设置，
+#   render() 顶栏展示。公网路径 = 服务器 Nginx 反代 /local/ → SSH 反向隧道 → 本机 8787。
+_PANEL_LINKS = ["http://127.0.0.1:8787/"]
+_PUBLIC_PANEL_URL = "https://api.wanminguo.top/local/"
+
+
+def _lan_ip():
+    """取本机局域网 IP（用于 bind=0.0.0.0 时给手机访问的地址）。失败返回 None。"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 53))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+        return ip or None
+    except Exception:                                      # noqa: BLE001
+        return None
+
+
+def set_panel_links(bind, port):
+    """按监听配置生成面板可访问地址列表（本机恒在；bind=0.0.0.0 加局域网；公网提示恒在）。"""
+    links = ["http://127.0.0.1:%d/" % port]
+    if bind in ("0.0.0.0", "::"):
+        ip = _lan_ip()
+        if ip:
+            links.append("http://%s:%d/" % (ip, port))
+    global _PANEL_LINKS
+    _PANEL_LINKS = links
+
+
+def _panel_links_html():
+    """顶栏展示的面板访问地址（本机/局域网链接 + 公网远程提示）。"""
+    parts = []
+    for u in _PANEL_LINKS:
+        parts.append('<a href="%s" style="color:#2f6fed">%s</a>' % (u, html.escape(u)))
+    pub = '<a href="%s" style="color:#0f9d58">%s</a>' % (
+        _PUBLIC_PANEL_URL, _PUBLIC_PANEL_URL)
+    return ("面板：%s　·　公网远程查看：%s（手机可用；需电脑本机已开启『远程隧道』"
+            " —— 见客户端目录 finhub_tunnel.bat）"
+            % ("　".join(parts), pub))
+
 
 def _engine_alive(cid):
     e = _ENGINES.get(cid)
@@ -2515,7 +2603,7 @@ def start_engine_from_config(overrides=None, cid=None):
 
     thr = threading.Thread(target=_entry, args=(api, trader, st, args, tp), daemon=True)
     with _ENGINE_LOCK:
-        _ENGINES[cid] = {"thr": thr, "key": key, "state": st}
+        _ENGINES[cid] = {"thr": thr, "key": key, "state": st, "trader": trader}
     thr.start()
     return True, "引擎已启动（市场=%s 模式=%s 倍数=×%s）" % (market, mode, mult)
 
@@ -2900,6 +2988,8 @@ def main(argv=None):
                     help="长轮询等待秒数（默认 10；服务端上限 15）")
     ap.add_argument("--since", type=float, default=0.0, help="从这里之后的信号（unix 秒）")
     ap.add_argument("--port", type=int, default=8787, help="本地面板端口（默认 8787）")
+    ap.add_argument("--bind", default="127.0.0.1",
+                    help="本地面板监听地址（默认 127.0.0.1 仅本机；填 0.0.0.0 可让同一局域网/公网设备访问）")
     ap.add_argument("--no-dashboard", action="store_true", help="不开本地面板")
     ap.add_argument("--skip-thin", action="store_true",
                     help="最优档挂单量小于我方份数时跳过该信号（默认不跳过，只提示）")
@@ -2985,9 +3075,10 @@ def main(argv=None):
         st.push_log("未找到已保存的 KEY —— 请在『连接配置』填写信号 API KEY 并保存，"
                     "然后点『启动』")
         if not args.no_dashboard:
+            set_panel_links(args.bind, args.port)
             Dash.state = st
-            srv = ThreadingHTTPServer(("127.0.0.1", args.port), Dash)
-            log("本地面板： http://127.0.0.1:%d（等待填写 KEY）" % args.port)
+            srv = ThreadingHTTPServer((args.bind, args.port), Dash)
+            log("本地面板： http://%s:%d（等待填写 KEY）" % (args.bind, args.port))
             log("没有 KEY 也保持端口开启 —— 面板『连接配置』里填写 KEY 保存后点『启动』")
             try:
                 threading.Timer(1.0, lambda: webbrowser.open(
@@ -3050,10 +3141,11 @@ def main(argv=None):
     #   ★ 2026-10-02（用户口径）：面板模式**不自动启动引擎** ——
     #     每个配置由「启动此配置 / 关闭程序」按钮手动控制（实盘配置尤其不能开机自跑）。
     if not args.no_dashboard:
+        set_panel_links(args.bind, args.port)
         Dash.state = st
-        srv = ThreadingHTTPServer(("127.0.0.1", args.port), Dash)
+        srv = ThreadingHTTPServer((args.bind, args.port), Dash)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
-        log("本地面板： http://127.0.0.1:%d（引擎未自动启动，请在各配置点『启动此配置』）" % args.port)
+        log("本地面板： http://%s:%d（引擎未自动启动，请在各配置点『启动此配置』）" % (args.bind, args.port))
         # ★ 2026-10-03（无窗口打包）：自动打开本地面板，双击 exe 后直接看到界面
         try:
             threading.Timer(1.0, lambda: webbrowser.open(
