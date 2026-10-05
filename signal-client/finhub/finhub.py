@@ -2782,9 +2782,17 @@ class Dash(BaseHTTPRequestHandler):
         if self.path.startswith("/api/quit"):
             # ★ 2026-10-03：真正结束整个客户端进程（区别于"关闭程序"只停引擎）。
             #   无窗口打包后这是唯一的退出方式；先给引擎 1 秒收尾，然后强退。
+            # ★ 2026-10-05（退出不了修复）：写 quit.flag 通知看门狗停止自动拉起，
+            #   否则 finhub_watchdog.bat 会在进程退出后 30 秒内把它重新拉起。
             if Dash.state:
                 Dash.state.stop = True
                 Dash.state.push_log("正在退出整个客户端程序…")
+            try:
+                with open(os.path.join(CONFIG_DIR, "quit.flag"), "w",
+                          encoding="utf-8") as _qf:
+                    _qf.write("quit\n")
+            except Exception:                                      # noqa: BLE001
+                pass
             threading.Thread(target=lambda: (time.sleep(1), os._exit(0)),
                              daemon=True).start()
             self.send_response(302)
