@@ -1767,6 +1767,20 @@ function quitApp(){{  /* ★ 2026-10-03 二次确认：退出的是整个客户�
   }}
   setInterval(dyn, 3000);
   dyn();
+  // ★ 2026-10-05（远程查看优化）：所有 form POST 改为 fetch 提交，
+  //   成功后只做局部刷新（dyn），不再 302 整页跳转 —— 本地/手机远程
+  //   点按钮都不闪屏不刷新页面。仅 api/quit 保留原 302（进程即将退出）。
+  document.addEventListener('submit', function(e){{
+    var f = e.target;
+    if (!f || f.tagName !== 'FORM' || !f.action) return;
+    if (String(f.action).indexOf('api/quit') !== -1) return;
+    e.preventDefault();
+    var body = new URLSearchParams(new FormData(f));
+    fetch(f.action, {{method:'POST', body:body, cache:'no-store'}})
+      .then(function(){{ setTimeout(function(){{ if (window.__dyn) window.__dyn(); }}, 350); }})
+      .catch(function(){{}});
+  }}, true);
+  window.__dyn = dyn;
 }})();
 </script>
 </div></body></html>"""
@@ -2155,7 +2169,8 @@ def render_dyn(st):
             '<span style="font-size:12px;color:#6b7891">开机自启动：'
             '<button type="button" class="btn %s" style="padding:3px 10px;font-size:11.5px" '
             'onclick="var b=this;fetch(\'api/autostart?on=%s\',{method:\'POST\'}).then(function(r){'
-            'return r.json();}).then(function(d){alert(d.message||\'完成\');location.reload();})'
+            'return r.json();}).then(function(d){alert(d.message||\'完成\');'
+            'if(window.__dyn)window.__dyn();})'
             '.catch(function(){alert(\'网络错误\');});">%s</button></span>'
             '</div></details>'
             % (html.escape(user.get("username") or "?"),
